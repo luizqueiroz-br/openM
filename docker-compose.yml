@@ -1,0 +1,67 @@
+version: "3.8"
+
+services:
+  neo4j:
+    image: neo4j:5-community
+    container_name: openm-neo4j
+    ports:
+      - "7474:7474"
+      - "7687:7687"
+    environment:
+      NEO4J_AUTH: neo4j/openm123
+      NEO4J_PLUGINS: '["apoc"]'
+      NEO4J_apoc_export_file_enabled: "true"
+      NEO4J_apoc_import_file_enabled: "true"
+      NEO4J_apoc_import_file_use__neo4j__config: "true"
+    volumes:
+      - neo4j_data:/data
+      - neo4j_plugins:/plugins
+
+  postgres:
+    image: postgres:15
+    container_name: openm-postgres
+    ports:
+      - "5432:5432"
+    environment:
+      POSTGRES_USER: openm
+      POSTGRES_PASSWORD: openm123
+      POSTGRES_DB: openm
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U openm -d openm"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+      start_period: 5s
+
+  flask:
+    build: .
+    container_name: openm-flask
+    ports:
+      - "5000:5000"
+    env_file:
+      - .env
+    environment:
+      - DATABASE_URL=postgresql://openm:openm123@postgres:5432/openm
+      - NEO4J_URI=bolt://neo4j:7687
+      - NEO4J_USER=neo4j
+      - NEO4J_PASSWORD=openm123
+    volumes:
+      - .:/app
+    depends_on:
+      neo4j:
+        condition: service_started
+      postgres:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:5000/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+
+volumes:
+  neo4j_data:
+  neo4j_plugins:
+  postgres_data:

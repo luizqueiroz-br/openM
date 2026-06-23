@@ -1,0 +1,140 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>OpenM - OSINT Graph Investigation</title>
+
+    <!-- Fontes -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+
+    <!-- Font Awesome -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css">
+
+    <!-- Cytoscape.js + plugins (locais para ordem determinística) -->
+    <script src="{{ url_for('static', filename='vendor/cytoscape.min.js') }}"></script>
+    <script src="{{ url_for('static', filename='vendor/cytoscape-cose-bilkent.js') }}"></script>
+    <script src="{{ url_for('static', filename='vendor/cytoscape-cxtmenu.js') }}"></script>
+    <script src="{{ url_for('static', filename='vendor/cytoscape-edgehandles.js') }}"></script>
+
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+</head>
+<body>
+    <div class="app-shell">
+        <!-- ============================================ TOPBAR -->
+        <header class="topbar">
+            <div class="brand">
+                <div class="logo"><i class="fa-solid fa-diagram-project"></i></div>
+                <span>OpenM</span>
+            </div>
+            <div class="toolbar">
+                <button class="btn icon" id="btn-fit" title="Ajustar à tela (F)"><i class="fa-solid fa-expand"></i></button>
+                <button class="btn icon" id="btn-clear" title="Limpar grafo"><i class="fa-solid fa-trash"></i></button>
+                <button class="btn icon" id="btn-undo" title="Desfazer (Ctrl+Z)"><i class="fa-solid fa-rotate-left"></i></button>
+                <button class="btn icon" id="btn-redo" title="Refazer (Ctrl+Y)"><i class="fa-solid fa-rotate-right"></i></button>
+                <button class="btn icon" id="btn-save" title="Salvar investigação"><i class="fa-solid fa-floppy-disk"></i></button>
+                <button class="btn icon" id="btn-export" title="Exportar JSON"><i class="fa-solid fa-download"></i></button>
+                <button class="btn icon" id="btn-import" title="Importar JSON"><i class="fa-solid fa-upload"></i></button>
+                <input type="file" id="file-input" accept="application/json" style="display:none">
+            </div>
+            <div class="spacer"></div>
+            <div class="conn"><span class="dot" id="dot-neo4j"></span><span>Neo4j</span></div>
+            <div class="conn"><span class="dot" id="dot-pg"></span><span>Postgres</span></div>
+        </header>
+
+        <!-- ============================================ WORKSPACE -->
+        <main class="workspace">
+            <!-- ====== PALETTE (ESQ) ====== -->
+            <aside class="sidebar left" id="palette">
+                <div class="sidebar-section">
+                    <h3><i class="fa-solid fa-magnifying-glass"></i>Buscar</h3>
+                    <div class="search-bar">
+                        <i class="fa-solid fa-magnifying-glass"></i>
+                        <input type="text" id="search-input" placeholder="Filtrar entidades...">
+                    </div>
+                </div>
+                <div class="sidebar-section">
+                    <h3><i class="fa-solid fa-shapes"></i>Entidades</h3>
+                    <div id="palette-items"></div>
+                </div>
+                <div class="sidebar-section">
+                    <h3><i class="fa-solid fa-clock-rotate-left"></i>Investigações</h3>
+                    <input type="text" id="inv-title" placeholder="Título...">
+                    <textarea id="inv-desc" rows="2" placeholder="Descrição..." style="margin-top:0.4rem"></textarea>
+                    <button class="btn primary" id="btn-create-inv" style="width:100%; margin-top:0.4rem">
+                        <i class="fa-solid fa-plus"></i>Nova Investigação
+                    </button>
+                    <ul class="list" id="investigations-list"></ul>
+                </div>
+                <div class="sidebar-section">
+                    <h3><i class="fa-solid fa-key"></i>API Keys</h3>
+                    <select id="key-service">
+                        <option value="emailrep">EmailRep.io</option>
+                        <option value="hibp">Have I Been Pwned</option>
+                        <option value="abstractapi">AbstractAPI</option>
+                        <option value="shodan">Shodan</option>
+                    </select>
+                    <input type="text" id="key-value" placeholder="Chave..." style="margin-top:0.4rem">
+                    <select id="key-type" style="margin-top:0.4rem">
+                        <option value="free">Free</option>
+                        <option value="paid">Paid</option>
+                    </select>
+                    <button class="btn primary" id="btn-save-key" style="width:100%; margin-top:0.4rem">
+                        <i class="fa-solid fa-save"></i>Salvar Chave
+                    </button>
+                    <ul class="list" id="keys-list"></ul>
+                </div>
+            </aside>
+
+            <!-- ====== CANVAS (CENTRO) ====== -->
+            <section class="canvas-area">
+                <div class="canvas-overlay">
+                    <button class="btn icon" id="ov-fit" title="Ajustar"><i class="fa-solid fa-expand"></i></button>
+                    <button class="btn icon" id="ov-zoom-in" title="Zoom +"><i class="fa-solid fa-plus"></i></button>
+                    <button class="btn icon" id="ov-zoom-out" title="Zoom -"><i class="fa-solid fa-minus"></i></button>
+                    <button class="btn icon" id="ov-relayout" title="Reorganizar"><i class="fa-solid fa-diagram-project"></i></button>
+                </div>
+                <div class="canvas-overlay bottom-right">
+                    <div class="zoom-info"><span id="zoom-level">100%</span></div>
+                    <div class="zoom-info" style="border-top:1px solid var(--border)">
+                        <span id="node-count">0</span> nós
+                    </div>
+                </div>
+                <div id="cy"></div>
+            </section>
+
+            <!-- ====== INSPECTOR (DIR) ====== -->
+            <aside class="sidebar right" id="inspector">
+                <div id="inspector-content">
+                    <div class="inspector-empty">
+                        <i class="fa-solid fa-circle-info" style="font-size:2rem; margin-bottom:0.5rem; display:block"></i>
+                        Selecione um nó ou aresta para ver detalhes
+                    </div>
+                </div>
+            </aside>
+        </main>
+
+        <!-- ============================================ STATUSBAR -->
+        <footer class="statusbar">
+            <span id="status-msg">Pronto.</span>
+            <div class="spacer"></div>
+            <span id="status-hint">Arraste entidades da paleta · Botão direito para ações</span>
+        </footer>
+    </div>
+
+    <!-- Container de modais -->
+    <div id="modal-root"></div>
+    <div id="cxtmenu-root"></div>
+    <div id="drag-ghost-root"></div>
+
+    <!-- Scripts principais -->
+    <script src="{{ url_for('static', filename='js/api.js') }}"></script>
+    <script src="{{ url_for('static', filename='js/icons.js') }}"></script>
+    <script src="{{ url_for('static', filename='js/modals.js') }}"></script>
+    <script src="{{ url_for('static', filename='js/inspector.js') }}"></script>
+    <script src="{{ url_for('static', filename='js/palette.js') }}"></script>
+    <script src="{{ url_for('static', filename='js/graph.js') }}"></script>
+    <script src="{{ url_for('static', filename='js/app.js') }}"></script></body>
+</html>
