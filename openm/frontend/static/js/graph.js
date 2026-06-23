@@ -358,9 +358,17 @@ const Graph = {
         const existingNodeIds = new Set(cy.nodes().map(n => n.id()));
         const existingEdgeIds = new Set(cy.edges().map(e => e.id()));
 
+        // Mapa id -> existe no batch? Usado pra filtrar edges que referenciam
+        // nodes que não existem (nem em cy nem no batch — provavelmente dado
+        // corrompido do backend).
+        const batchNodeIds = new Set();
+
         const newNodes = (elements.nodes || [])
             .filter(n => n?.data?.id && !existingNodeIds.has(n.data.id))
-            .map(n => ({ group: 'nodes', data: n.data }));
+            .map(n => {
+                batchNodeIds.add(n.data.id);
+                return { group: 'nodes', data: n.data };
+            });
 
         // Prepara edges SEM verificar se source/target existem (eles serão
         // adicionados junto com os nodes logo abaixo).
@@ -391,12 +399,18 @@ const Graph = {
                     safe.id = `edge-${safe.source}-${safe.target}-${safe.label || 'rel'}-${Date.now()}`;
                 }
                 return { group: 'edges', data: safe };
+            })
+            // Filtra edges que apontam pra nodes que não existem nem em cy
+            // nem no batch. Cytoscape não rejeita essas edges graciosamente —
+            // emite warning e não cria a edge, mas polui o console.
+            .filter(e => {
+                const srcExists = existingNodeIds.has(e.data.source) || batchNodeIds.has(e.data.source);
+                const tgtExists = existingNodeIds.has(e.data.target) || batchNodeIds.has(e.data.target);
+                return srcExists && tgtExists;
             });
 
         if (newNodes.length === 0 && candidateEdges.length === 0) return;
 
-        // Adiciona nodes e edges juntos. Cytoscape conecta edges aos nodes
-        // pelo source/target no mesmo batch atomicamente.
         cy.add([...newNodes, ...candidateEdges]);
         this.relayout();
     },

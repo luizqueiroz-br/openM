@@ -154,11 +154,20 @@ const App = {
                         try {
                             const sub = await OpenMAPI.getSubgraph(rootId, 2);
                             cy.elements().remove();
-                            // Backend retorna Cytoscape cru: {elements: [{data}, ...]}
-                            // Graph.addElements espera wrapper: {nodes: [{data}], edges: [{data}]}
+                            // /api/subgraph pode retornar 2 formatos inconsistentes:
+                            //   1. Cytoscape cru: {elements: [{data}, ...]}
+                            //   2. Wrapper:        {elements: {nodes: [...], edges: [...]}}
+                            // Aceitamos ambos. Graph.addElements espera {nodes, edges}.
+                            let raw = [];
+                            const el = sub.elements;
+                            if (Array.isArray(el)) {
+                                raw = el;
+                            } else if (el && Array.isArray(el.nodes)) {
+                                raw = [...el.nodes, ...(el.edges || [])];
+                            }
                             const normalized = {
-                                nodes: (sub.elements || []).filter(e => e.data && !e.data.source),
-                                edges: (sub.elements || []).filter(e => e.data && e.data.source),
+                                nodes: raw.filter(e => e.data && !e.data.source),
+                                edges: raw.filter(e => e.data && e.data.source),
                             };
                             Graph.addElements(normalized);
                             this.setStatus(`Investigação "${li.querySelector('.title')?.textContent || ''}" carregada.`, 'success');
@@ -182,8 +191,14 @@ const App = {
         }
         const rootId = Graph.selected ? Graph.selected.id() : null;
         try {
-            await OpenMAPI.createInvestigation(title, desc, rootId);
-            this.setStatus('Investigação criada.', 'success');
+            const result = await OpenMAPI.createInvestigation(title, desc, rootId);
+            const savedTitle = result?.investigation?.title || title;
+            const savedRoot = result?.investigation?.root_entity_id;
+            if (savedRoot) {
+                this.setStatus(`✓ Investigação "${savedTitle}" salva (com entidade raiz — pode ser reaberta).`, 'success');
+            } else {
+                this.setStatus(`⚠ Investigação "${savedTitle}" salva SEM entidade raiz — não vai poder ser reaberta pelo nome. Selecione um nó antes de salvar para incluir uma raiz.`, 'error');
+            }
             document.getElementById('inv-title').value = '';
             document.getElementById('inv-desc').value = '';
             this.loadInvestigations();
