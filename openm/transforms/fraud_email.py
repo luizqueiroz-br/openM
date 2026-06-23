@@ -1,7 +1,7 @@
 from datetime import datetime, timezone
 from typing import Any, Dict, List
 
-from openm.core.entity import Device, Email, Entity, IPAddress
+from openm.core.entity import Device, Entity, IPAddress
 from openm.core.transform import Transform, TransformResult
 from openm.services.threat_intel_service import ThreatIntelService
 

@@ -96,7 +96,6 @@ class ThreatIntelService:
         emailrep = cls.query_emailrep(email)
         if emailrep:
             result["sources"].append("emailrep")
-            details = emailrep.get("details", {})
             reputation = emailrep.get("reputation", "unknown")
             suspicious = emailrep.get("suspicious", False)
             result["indicators"].append(

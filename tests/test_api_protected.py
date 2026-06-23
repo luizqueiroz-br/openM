@@ -96,7 +96,9 @@ def mock_neo4j(monkeypatch):
     Os blueprints importam a função diretamente, então precisamos patchar
     o nome em cada módulo consumidor.
     """
-    fake = lambda *args, **kwargs: _FakeGraphManager()
+    def fake(*args, **kwargs):
+        return _FakeGraphManager()
+
     modules = [
         "openm.utils.neo4j_client",
         "openm.api.graph",

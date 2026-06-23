@@ -1,7 +1,7 @@
 from datetime import datetime, timezone
 from typing import Any, Dict, List
 
-from openm.core.entity import Domain, Entity, IPAddress
+from openm.core.entity import Entity, IPAddress
 from openm.core.transform import Transform, TransformResult
 from openm.services.dns_service import resolve_domain
 

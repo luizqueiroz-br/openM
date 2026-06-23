@@ -1,7 +1,7 @@
 from flask import Blueprint, jsonify, request
 
 from openm.core.auth import require_auth
-from openm.core.entity import ENTITY_CLASSES, Entity
+from openm.core.entity import ENTITY_CLASSES, Entity  # noqa: F401  (Entity usado em runtime)
 from openm.core.transform import TransformRegistry
 from openm.utils.neo4j_client import get_graph_manager
 
