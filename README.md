@@ -2,6 +2,7 @@
 
 > Plataforma open-source de investigação visual de vínculos (OSINT/CTI) estilo Maltego, com Flask, Neo4j, PostgreSQL e Cytoscape.js.
 
+[![CI](https://github.com/luizqueiroz-br/openM/actions/workflows/ci.yml/badge.svg)](https://github.com/luizqueiroz-br/openM/actions/workflows/ci.yml)
 ![Status](https://img.shields.io/badge/status-MVP-success)
 ![Stack](https://img.shields.io/badge/stack-Flask%20%7C%20Neo4j%20%7C%20PostgreSQL%20%7C%20Cytoscape.js-blue)
 ![License](https://img.shields.io/badge/license-MIT-green)
