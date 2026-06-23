@@ -1,0 +1,48 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Login · OpenM</title>
+
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css">
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+</head>
+<body class="auth-body">
+    <main class="auth-card">
+        <header class="auth-brand">
+            <div class="logo"><i class="fa-solid fa-diagram-project"></i></div>
+            <h1>OpenM</h1>
+            <p class="auth-subtitle">OSINT Graph Investigation</p>
+        </header>
+
+        <form id="login-form" class="auth-form" autocomplete="on">
+            <label for="email">Email</label>
+            <input type="email" id="email" name="email" required autofocus
+                   placeholder="voce@exemplo.com">
+
+            <label for="password">Senha</label>
+            <input type="password" id="password" name="password" required minlength="8"
+                   placeholder="••••••••">
+
+            <div id="login-error" class="auth-error" hidden></div>
+
+            <button type="submit" class="btn primary auth-submit">
+                <i class="fa-solid fa-right-to-bracket"></i> Entrar
+            </button>
+
+            {% if allow_registration %}
+            <p class="auth-switch">
+                Não tem conta? <a href="{{ url_for('frontend.register_page') }}">Registre-se</a>
+            </p>
+            {% endif %}
+        </form>
+    </main>
+
+    <script src="{{ url_for('static', filename='js/auth.js') }}"></script>
+</body>
+</html>

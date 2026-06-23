@@ -135,14 +135,112 @@ def is_refresh_revoked(jti: str) -> bool:
     ).scalar()
 
 
+# ===================== Cookies (issue #13) =====================
+#
+# O frontend usa cookies httpOnly em vez de localStorage, evitando XSS.
+# Tokens continuam disponíveis também no JSON de resposta (header Bearer)
+# para integrações externas e testes.
+#
+# - Access cookie: SameSite=Lax (acompanha navegação top-level).
+# - Refresh cookie: SameSite=Strict (só first-party, mais conservador).
+# - Em produção (JWT_COOKIE_SECURE=true), ambos exigem HTTPS.
+
+def _cookie_access_name() -> str:
+    return _config("JWT_COOKIE_ACCESS_NAME", "openm_access")
+
+
+def _cookie_refresh_name() -> str:
+    return _config("JWT_COOKIE_REFRESH_NAME", "openm_refresh")
+
+
+def _cookie_secure() -> bool:
+    return bool(_config("JWT_COOKIE_SECURE", False))
+
+
+def _cookie_domain() -> str | None:
+    return _config("JWT_COOKIE_DOMAIN", None)
+
+
+def _set_auth_cookies(
+    response: Any,
+    *,
+    access_token: str,
+    refresh_token: str,
+    refresh_expires_at: datetime,
+) -> None:
+    """Seta os cookies httpOnly de access + refresh na response."""
+    access_ttl = int(_config("JWT_ACCESS_TTL_MINUTES", 15)) * 60  # em segundos
+    refresh_ttl = int((refresh_expires_at - _now()).total_seconds())
+
+    common = dict(
+        httponly=True,
+        secure=_cookie_secure(),
+        domain=_cookie_domain(),
+    )
+    response.set_cookie(
+        _cookie_access_name(),
+        access_token,
+        max_age=access_ttl,
+        samesite="Lax",
+        path="/",
+        **common,
+    )
+    response.set_cookie(
+        _cookie_refresh_name(),
+        refresh_token,
+        max_age=max(refresh_ttl, 0),
+        samesite="Strict",
+        path="/",
+        **common,
+    )
+
+
+def _clear_auth_cookies(response: Any) -> None:
+    """Remove os cookies de auth da response (usado em /logout)."""
+    common = dict(
+        secure=_cookie_secure(),
+        domain=_cookie_domain(),
+        path="/",
+    )
+    response.delete_cookie(_cookie_access_name(), **common)
+    response.delete_cookie(_cookie_refresh_name(), **common)
+
+
+def _read_cookie_token(name: str) -> str | None:
+    """Lê um valor de cookie pelo nome. Retorna None se ausente ou vazio."""
+    value = request.cookies.get(name)
+    if not value:
+        return None
+    return value
+
+
+def _get_refresh_token_from_request() -> str | None:
+    """
+    Resolve o refresh token a partir de (em ordem):
+    1. body JSON ``{"refresh_token": "..."}`` (uso externo / testes)
+    2. cookie httpOnly ``openm_refresh`` (uso do frontend)
+    """
+    data = request.get_json(silent=True) or {}
+    token = data.get("refresh_token")
+    if token:
+        return token
+    return _read_cookie_token(_cookie_refresh_name())
+
+
 # ===================== Decorator =====================
 
 def _extract_bearer() -> str | None:
+    """
+    Extrai o access token de:
+    1. Header ``Authorization: Bearer <token>`` (uso externo / API)
+    2. Cookie httpOnly ``openm_access`` (uso do frontend)
+    """
     auth = request.headers.get("Authorization", "")
-    if not auth.lower().startswith("bearer "):
-        return None
-    token = auth[7:].strip()
-    return token or None
+    if auth.lower().startswith("bearer "):
+        token = auth[7:].strip()
+        if token:
+            return token
+    return _read_cookie_token(_cookie_access_name())
 
 
 def require_auth(fn: Callable) -> Callable:
@@ -199,3 +297,62 @@ def require_role(*allowed: str) -> Callable:
         return wrapper
 
     return decorator
+
+
+# ===================== Decorator de páginas HTML =====================
+
+def login_required_page(fn: Callable) -> Callable:
+    """
+    Decorator para views que servem páginas HTML (não API).
+
+    Lê o access token do header ``Authorization: Bearer`` ou do cookie
+    httpOnly ``openm_access``. Se ausente/inválido → redireciona pra
+    ``/login``. Se válido → popula ``g.user`` e ``g.role``.
+
+    Diferente de ``@require_auth`` (que retorna JSON 401), este decorator
+    faz redirect 302 — comportamento esperado para navegação de browser.
+    """
+    from flask import redirect, url_for
+
+    @wraps(fn)
+    def wrapper(*args: Any, **kwargs: Any):
+        token = _extract_bearer()
+        if not token:
+            return redirect(url_for("frontend.login_page"))
+        try:
+            payload = decode_token(token, expected_type="access")
+        except TokenError:
+            return redirect(url_for("frontend.login_page"))
+
+        user = db.session.get(User, int(payload["sub"]))
+        if user is None or not user.is_active:
+            return redirect(url_for("frontend.login_page"))
+
+        g.user = user
+        g.role = user.role
+        return fn(*args, **kwargs)
+
+    return wrapper
+
+
+# ===================== API pública (helpers reexportados) =====================
+#
+# Helpers internos usados pelos endpoints em ``openm.api.auth`` para
+# setar/limpar cookies httpOnly e resolver o refresh token a partir
+# do body ou do cookie.
+
+__all__ = [
+    "TokenError",
+    "hash_password",
+    "verify_password",
+    "encode_token",
+    "decode_token",
+    "revoke_refresh_token",
+    "is_refresh_revoked",
+    "require_auth",
+    "require_role",
+    "login_required_page",
+    "_set_auth_cookies",
+    "_clear_auth_cookies",
+    "_get_refresh_token_from_request",
+]

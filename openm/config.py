@@ -49,3 +49,19 @@ class Config:
         "true",
         "yes",
     )
+
+    # === Cookies httpOnly para auth (issue #13) ===
+    # Nomes dos cookies usados pelo /api/auth/*.
+    JWT_COOKIE_ACCESS_NAME: str = os.environ.get("JWT_COOKIE_ACCESS_NAME", "openm_access")
+    JWT_COOKIE_REFRESH_NAME: str = os.environ.get("JWT_COOKIE_REFRESH_NAME", "openm_refresh")
+
+    # Secure flag: True em produção (HTTPS) para o navegador só enviar os
+    # cookies em conexões seguras. False em dev local (HTTP).
+    JWT_COOKIE_SECURE: bool = os.environ.get("JWT_COOKIE_SECURE", "false").lower() in (
+        "1",
+        "true",
+        "yes",
+    )
+
+    # Domínio opcional dos cookies (None = só o host atual).
+    JWT_COOKIE_DOMAIN: str | None = os.environ.get("JWT_COOKIE_DOMAIN") or None

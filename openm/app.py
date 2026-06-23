@@ -13,6 +13,7 @@ from openm.api import (
     transforms_bp,
     auth_bp,
 )
+from openm.frontend.routes import frontend_bp
 
 # Importa models para garantir que db.create_all() registre as tabelas
 # (incluindo users e revoked_tokens usadas pela autenticação JWT).
@@ -50,12 +51,21 @@ def create_app(config_class=Config) -> Flask:
     app.register_blueprint(keys_bp)
     app.register_blueprint(auth_bp)
 
+    # Páginas HTML (login/registro/logout)
+    app.register_blueprint(frontend_bp)
+
     @app.route("/")
     def index():
-        """Página principal do OpenM."""
+        """Página principal do OpenM (protegida — exige sessão)."""
         from flask import render_template
 
-        return render_template("index.html")
+        from openm.core.auth import login_required_page
+
+        @login_required_page
+        def _render():
+            return render_template("index.html")
+
+        return _render()
 
     @app.route("/health")
     def health():

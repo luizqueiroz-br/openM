@@ -340,6 +340,16 @@ const App = {
         this.loadInvestigations();
         this.loadKeys();
         this.setStatus('Pronto. Arraste entidades da paleta para o canvas.');
+        this.loadUser();
+    },
+
+    async loadUser() {
+        const user = await OpenMAuth.bootstrap();
+        if (user) {
+            const el = document.getElementById('user-email');
+            if (el) el.textContent = user.email;
+        }
+        // Se bootstrap falhou, já redirecionou pra /login.
     },
 };
 

@@ -1,12 +1,14 @@
 from flask import Blueprint, jsonify, request
 from pydantic import BaseModel, ValidationError
 
+from openm.core.auth import require_auth
 from openm.utils.neo4j_client import get_graph_manager
 
 graph_bp = Blueprint("graph", __name__, url_prefix="/api")
 
 
 @graph_bp.route("/subgraph/<entity_id>", methods=["GET"])
+@require_auth
 def get_subgraph(entity_id: str):
     """
     GET /api/subgraph/<entity_id>?depth=2
@@ -31,6 +33,7 @@ class CreateEdgePayload(BaseModel):
 
 
 @graph_bp.route("/edge", methods=["POST"])
+@require_auth
 def create_edge():
     """
     POST /api/edge
@@ -59,6 +62,7 @@ def create_edge():
 
 
 @graph_bp.route("/edge/<path:relationship_id>", methods=["DELETE"])
+@require_auth
 def delete_edge(relationship_id: str):
     """
     DELETE /api/edge/<id>

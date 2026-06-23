@@ -11,7 +11,7 @@ Endpoints:
 
 from __future__ import annotations
 
-from datetime import timedelta
+from datetime import datetime, timedelta, timezone
 
 from email_validator import EmailNotValidError, validate_email
 from flask import Blueprint, current_app, jsonify, request
@@ -19,6 +19,9 @@ from pydantic import BaseModel, Field, ValidationError
 
 from openm.core.auth import (
     TokenError,
+    _clear_auth_cookies,
+    _get_refresh_token_from_request,
+    _set_auth_cookies,
     decode_token,
     encode_token,
     hash_password,
@@ -44,10 +47,6 @@ class RegisterPayload(BaseModel):
 class LoginPayload(BaseModel):
     email: str
     password: str
-
-
-class RefreshPayload(BaseModel):
-    refresh_token: str
 
 
 # ================ Helpers ================
@@ -84,6 +83,16 @@ def _issue_token_pair(user: User) -> dict:
         "refresh_jti": refresh_jti,  # útil para testes
         "user": user.to_dict(),
     }
+
+
+def _attach_auth_cookies(response, token_pair: dict) -> None:
+    """Atalho: seta cookies httpOnly a partir do dict retornado por _issue_token_pair."""
+    _set_auth_cookies(
+        response,
+        access_token=token_pair["access_token"],
+        refresh_token=token_pair["refresh_token"],
+        refresh_expires_at=datetime.fromisoformat(token_pair["refresh_expires_at"]),
+    )
 
 
 # ================ Endpoints ================
@@ -155,7 +164,10 @@ def login():
     ):
         return jsonify({"error": "invalid credentials"}), 401
 
-    return jsonify(_issue_token_pair(user)), 200
+    token_pair = _issue_token_pair(user)
+    response = jsonify(token_pair)
+    _attach_auth_cookies(response, token_pair)
+    return response, 200
 
 
 @auth_bp.route("/refresh", methods=["POST"])
@@ -164,17 +176,15 @@ def refresh():
     """
     POST /api/auth/refresh
 
-    Body: ``{"refresh_token": "..."}``
+    Body: ``{"refresh_token": "..."}`` OU cookie httpOnly ``openm_refresh``.
     Rotaciona o refresh token: o antigo vai pra blacklist, um novo par é emitido.
     """
-    data = request.get_json(silent=True) or {}
-    try:
-        payload = RefreshPayload(**data)
-    except ValidationError as exc:
-        return jsonify({"error": exc.errors()}), 400
+    refresh_token = _get_refresh_token_from_request()
+    if not refresh_token:
+        return jsonify({"error": "refresh_token required (body or cookie)"}), 400
 
     try:
-        claims = decode_token(payload.refresh_token, expected_type="refresh")
+        claims = decode_token(refresh_token, expected_type="refresh")
     except TokenError as exc:
         return jsonify({"error": str(exc)}), 401
 
@@ -187,15 +197,16 @@ def refresh():
         return jsonify({"error": "user not found or inactive"}), 401
 
     # Revoga o refresh apresentado (rotação).
-    from datetime import datetime, timezone
-
     revoke_refresh_token(
         jti=jti,
         user_id=user.id,
         expires_at=datetime.fromtimestamp(claims["exp"], tz=timezone.utc),
     )
 
-    return jsonify(_issue_token_pair(user)), 200
+    token_pair = _issue_token_pair(user)
+    response = jsonify(token_pair)
+    _attach_auth_cookies(response, token_pair)
+    return response, 200
 
 
 @auth_bp.route("/logout", methods=["POST"])
@@ -204,28 +215,28 @@ def logout():
     """
     POST /api/auth/logout
 
-    Body: ``{"refresh_token": "..."}``
-    Revoga o refresh token. Idempotente.
+    Body: ``{"refresh_token": "..."}`` OU cookie httpOnly ``openm_refresh``.
+    Revoga o refresh token e limpa os cookies. Idempotente.
     """
-    data = request.get_json(silent=True) or {}
-    refresh_token = data.get("refresh_token")
-    if not refresh_token:
-        return jsonify({"error": "refresh_token required"}), 400
+    refresh_token = _get_refresh_token_from_request()
+    response = jsonify({"status": "logged out"})
 
-    try:
-        claims = decode_token(refresh_token, expected_type="refresh")
-    except TokenError:
-        # Idempotente: logout de token já inválido é sucesso silencioso.
-        return jsonify({"status": "logged out"}), 200
+    if refresh_token:
+        try:
+            claims = decode_token(refresh_token, expected_type="refresh")
+        except TokenError:
+            # Idempotente: logout de token já inválido é sucesso silencioso.
+            _clear_auth_cookies(response)
+            return response, 200
 
-    from datetime import datetime, timezone
+        revoke_refresh_token(
+            jti=claims["jti"],
+            user_id=int(claims["sub"]),
+            expires_at=datetime.fromtimestamp(claims["exp"], tz=timezone.utc),
+        )
 
-    revoke_refresh_token(
-        jti=claims["jti"],
-        user_id=int(claims["sub"]),
-        expires_at=datetime.fromtimestamp(claims["exp"], tz=timezone.utc),
-    )
-    return jsonify({"status": "logged out"}), 200
+    _clear_auth_cookies(response)
+    return response, 200
 
 
 @auth_bp.route("/me", methods=["GET"])
