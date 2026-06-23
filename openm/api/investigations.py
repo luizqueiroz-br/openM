@@ -1,6 +1,7 @@
 from flask import Blueprint, jsonify, request
 from pydantic import BaseModel, ValidationError
 
+from openm.core.auth import require_auth
 from openm.extensions import db
 from openm.models.investigation import Investigation
 
@@ -14,6 +15,7 @@ class CreateInvestigationPayload(BaseModel):
 
 
 @investigations_bp.route("/investigations", methods=["POST"])
+@require_auth
 def create_investigation():
     """
     POST /api/investigations
@@ -37,6 +39,7 @@ def create_investigation():
 
 
 @investigations_bp.route("/investigations", methods=["GET"])
+@require_auth
 def list_investigations():
     """
     GET /api/investigations
@@ -48,6 +51,7 @@ def list_investigations():
 
 
 @investigations_bp.route("/investigations/<int:investigation_id>", methods=["GET"])
+@require_auth
 def get_investigation(investigation_id: int):
     """
     GET /api/investigations/<id>

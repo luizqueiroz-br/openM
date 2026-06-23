@@ -1,5 +1,6 @@
 from flask import Blueprint, jsonify, request
 
+from openm.core.auth import require_auth
 from openm.core.entity import ENTITY_CLASSES, Entity
 from openm.core.transform import TransformRegistry
 from openm.utils.neo4j_client import get_graph_manager
@@ -8,6 +9,7 @@ transforms_bp = Blueprint("transforms", __name__, url_prefix="/api")
 
 
 @transforms_bp.route("/transforms/<entity_type>", methods=["GET"])
+@require_auth
 def list_transforms(entity_type: str):
     """
     GET /api/transforms/<entity_type>
@@ -18,6 +20,7 @@ def list_transforms(entity_type: str):
 
 
 @transforms_bp.route("/run_transform", methods=["POST"])
+@require_auth
 def run_transform():
     """
     POST /api/run_transform

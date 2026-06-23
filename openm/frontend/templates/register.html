@@ -1,0 +1,50 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Registro · OpenM</title>
+
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css">
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+</head>
+<body class="auth-body">
+    <main class="auth-card">
+        <header class="auth-brand">
+            <div class="logo"><i class="fa-solid fa-diagram-project"></i></div>
+            <h1>OpenM</h1>
+            <p class="auth-subtitle">Criar nova conta</p>
+        </header>
+
+        <form id="register-form" class="auth-form" autocomplete="on">
+            <label for="email">Email</label>
+            <input type="email" id="email" name="email" required autofocus
+                   placeholder="voce@exemplo.com">
+
+            <label for="password">Senha <span class="auth-hint">(mínimo 8 caracteres)</span></label>
+            <input type="password" id="password" name="password" required minlength="8"
+                   placeholder="••••••••">
+
+            <label for="password2">Confirmar senha</label>
+            <input type="password" id="password2" name="password2" required minlength="8"
+                   placeholder="••••••••">
+
+            <div id="register-error" class="auth-error" hidden></div>
+
+            <button type="submit" class="btn primary auth-submit">
+                <i class="fa-solid fa-user-plus"></i> Criar conta
+            </button>
+
+            <p class="auth-switch">
+                Já tem conta? <a href="{{ url_for('frontend.login_page') }}">Entrar</a>
+            </p>
+        </form>
+    </main>
+
+    <script src="{{ url_for('static', filename='js/auth.js') }}"></script>
+</body>
+</html>

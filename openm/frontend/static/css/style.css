@@ -707,3 +707,143 @@ label {
     border-color: var(--accent);
     box-shadow: var(--shadow-lg);
 }
+
+/* ==============================================================
+   Telas de autenticação (login/registro)
+   ============================================================== */
+
+.auth-body {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    height: 100vh;
+    overflow: hidden;
+    background:
+        radial-gradient(ellipse at top, rgba(56, 189, 248, 0.08), transparent 60%),
+        radial-gradient(ellipse at bottom, rgba(129, 140, 248, 0.06), transparent 60%),
+        var(--bg-deep);
+}
+
+.auth-card {
+    width: 100%;
+    max-width: 400px;
+    padding: 2rem 2.25rem;
+    background: var(--bg-panel);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-lg);
+    box-shadow: var(--shadow-lg);
+}
+
+.auth-brand {
+    text-align: center;
+    margin-bottom: 1.75rem;
+}
+
+.auth-brand .logo {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 52px;
+    height: 52px;
+    background: linear-gradient(135deg, var(--accent), var(--accent-2));
+    color: var(--bg-deep);
+    border-radius: var(--radius-lg);
+    font-size: 1.5rem;
+    margin-bottom: 0.75rem;
+}
+
+.auth-brand h1 {
+    margin: 0;
+    font-size: 1.6rem;
+    font-weight: 700;
+    letter-spacing: -0.01em;
+}
+
+.auth-subtitle {
+    margin: 0.25rem 0 0;
+    color: var(--text-dim);
+    font-size: 0.85rem;
+}
+
+.auth-form {
+    display: flex;
+    flex-direction: column;
+    gap: 0.4rem;
+}
+
+.auth-form label {
+    margin-top: 0.6rem;
+    font-size: 0.8rem;
+    font-weight: 500;
+    color: var(--text-dim);
+}
+
+.auth-form input {
+    margin-top: 0.25rem;
+}
+
+.auth-hint {
+    font-weight: 400;
+    color: var(--text-faint);
+    font-size: 0.75rem;
+}
+
+.auth-error {
+    margin-top: 0.75rem;
+    padding: 0.6rem 0.75rem;
+    background: rgba(239, 68, 68, 0.1);
+    border: 1px solid var(--danger);
+    border-radius: var(--radius);
+    color: var(--danger);
+    font-size: 0.82rem;
+    text-align: center;
+}
+
+.auth-submit {
+    margin-top: 1rem;
+    width: 100%;
+    justify-content: center;
+    padding: 0.65rem 1rem;
+    font-size: 0.9rem;
+}
+
+.auth-switch {
+    margin-top: 1rem;
+    text-align: center;
+    color: var(--text-dim);
+    font-size: 0.82rem;
+}
+
+.auth-switch a {
+    color: var(--accent);
+    text-decoration: none;
+    font-weight: 500;
+}
+
+.auth-switch a:hover {
+    text-decoration: underline;
+}
+
+/* ==============================================================
+   Topbar - info do usuário (issue #13)
+   ============================================================== */
+
+.topbar .user-info {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    color: var(--text-dim);
+    font-size: 0.85rem;
+}
+
+.topbar .user-info i.fa-user-circle {
+    font-size: 1.1rem;
+    color: var(--accent);
+}
+
+.topbar .user-info #user-email {
+    max-width: 220px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}

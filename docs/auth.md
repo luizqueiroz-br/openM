@@ -1,6 +1,6 @@
 # Autenticação — OpenM
 
-Esta página descreve o sistema de autenticação baseado em **JWT (JSON Web Tokens)** com **access token + refresh token**, implementado na issue #1.
+Esta página descreve o sistema de autenticação baseado em **JWT (JSON Web Tokens)** com **access token + refresh token**, implementado nas issues #1 (backend) e #13 (frontend + cookies httpOnly + proteção de APIs).
 
 ## Visão geral
 
@@ -113,6 +113,10 @@ Todas as variáveis têm defaults razoáveis e podem ser sobrescritas via `.env`
 | `JWT_ISSUER` | `openm` | Claim `iss`. |
 | `JWT_AUDIENCE` | `openm-api` | Claim `aud`. |
 | `ALLOW_REGISTRATION` | `false` | Habilita `POST /api/auth/register`. **Default fechado em produção**. |
+| `JWT_COOKIE_ACCESS_NAME` | `openm_access` | Nome do cookie httpOnly de access. |
+| `JWT_COOKIE_REFRESH_NAME` | `openm_refresh` | Nome do cookie httpOnly de refresh. |
+| `JWT_COOKIE_SECURE` | `false` | Marca `Secure` nos cookies. **Deve ser `true` em produção (HTTPS)**. |
+| `JWT_COOKIE_DOMAIN` | `None` | Domínio opcional dos cookies (None = host atual). |
 
 ## Boas práticas para o cliente
 
@@ -131,10 +135,72 @@ Todas as variáveis têm defaults razoáveis e podem ser sobrescritas via `.env`
 - **Email validado e normalizado** (`email-validator`, com `check_deliverability=False` para evitar latência em testes).
 - **BCrypt rounds=12** (default seguro em 2025).
 - **JWT_SECRET** lido com fallback para `SECRET_KEY`; em produção defina um valor próprio e forte.
+- **Cookies httpOnly + SameSite**: tokens de sessão nunca são acessíveis por JavaScript, mitigando XSS. `SameSite=Lax` no access e `Strict` no refresh mitiga CSRF.
+
+## Cookies httpOnly (issue #13)
+
+Desde a issue #13, os endpoints `/api/auth/login`, `/refresh` e `/logout` **também** setam cookies httpOnly além de retornarem os tokens no JSON. O frontend usa os cookies (não tem como o JS anexar `Authorization` se ele não tem o token em mãos).
+
+### Nomes e flags
+
+| Cookie | Path | SameSite | Secure (prod) | TTL |
+|---|---|---|---|---|
+| `openm_access` | `/` | `Lax` | true | 15 min (`JWT_ACCESS_TTL_MINUTES`) |
+| `openm_refresh` | `/` | `Strict` | true | 7 dias (`JWT_REFRESH_TTL_DAYS`) |
+
+Ambos com `HttpOnly` (JS nunca consegue ler) e `path=/`.
+
+### Como o backend resolve o token
+
+`@require_auth` e `login_required_page` leem **em ordem**:
+1. Header `Authorization: Bearer <token>` (uso externo / API / testes)
+2. Cookie `openm_access` (uso do frontend)
+
+`/refresh` e `/logout` leem **em ordem**:
+1. Body JSON `{"refresh_token": "..."}` (uso externo / testes)
+2. Cookie `openm_refresh` (uso do frontend)
+
+### Em produção
+
+Defina **obrigatoriamente** `JWT_COOKIE_SECURE=true` no `.env`. Sem isso, o navegador aceita mandar o cookie em HTTP puro, expondo o token em redes não confiáveis.
+
+```bash
+# .env (produção)
+JWT_COOKIE_SECURE=true
+```
+
+## Como adicionar uma rota protegida (issue #13)
+
+Todas as rotas em `/api/*` (exceto `/api/auth/*`) DEVEM usar `@require_auth`:
+
+```python
+from openm.core.auth import require_auth, require_role
+
+@my_bp.route("/whatever", methods=["POST"])
+@require_auth           # sempre
+@require_role("admin")  # opcional: restringe por papel
+def my_view():
+    from flask import g
+    # g.user e g.role estão disponíveis
+    ...
+```
+
+Para **páginas HTML** (servidas pelo Flask, não pela API), use `login_required_page`:
+
+```python
+from openm.core.auth import login_required_page
+from flask import render_template
+
+@frontend_bp.route("/settings")
+@login_required_page      # redireciona pra /login se sem sessão
+def settings_page():
+    return render_template("settings.html")
+```
 
 ## Próximos passos
 
-- Issue #2 — Multi-usuário: investigações por dono (`user_id` em `investigations`).
-- Issue #3 — RBAC: aplicar `@require_role(...)` em rotas sensíveis.
-- Issue #4 — Audit log: logar tentativas falhas de login e logouts.
 - Migração para algoritmo assimétrico (RS256) quando houver múltiplos serviços consumindo os tokens.
+- Audit log: logar tentativas falhas de login e logouts.
+- Refresh sliding window: renovar access token em chamadas autenticadas próximas da expiração.
+- CSRF token explícito para mutations feitas via cookies (mitigação complementar ao SameSite).
+- Recuperação de senha por email.
