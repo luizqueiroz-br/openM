@@ -1,4 +1,4 @@
-from flask import Blueprint, jsonify, request
+from flask import Blueprint, g, jsonify, request
 from pydantic import BaseModel, ValidationError
 
 from openm.core.auth import require_auth
@@ -20,7 +20,8 @@ def create_investigation():
     """
     POST /api/investigations
 
-    Cria uma nova investigação no PostgreSQL.
+    Cria uma nova investigação no PostgreSQL, vinculada ao usuário
+    autenticado (issue #2 — multi-user).
     """
     data = request.get_json(silent=True) or {}
     try:
@@ -32,6 +33,7 @@ def create_investigation():
         title=payload.title,
         description=payload.description,
         root_entity_id=payload.root_entity_id,
+        user_id=g.user.id,
     )
     db.session.add(investigation)
     db.session.commit()
@@ -44,9 +46,18 @@ def list_investigations():
     """
     GET /api/investigations
 
-    Lista todas as investigações cadastradas.
+    Lista apenas as investigações do usuário autenticado (issue #2).
+    Investigations legadas (user_id=null) ficam visíveis pra todos os
+    users logados — pra não quebrar dados antigos.
     """
-    investigations = Investigation.query.order_by(Investigation.created_at.desc()).all()
+    investigations = (
+        Investigation.query
+        .filter(
+            (Investigation.user_id == g.user.id) | (Investigation.user_id.is_(None))
+        )
+        .order_by(Investigation.created_at.desc())
+        .all()
+    )
     return jsonify({"investigations": [inv.to_dict() for inv in investigations]})
 
 
@@ -56,7 +67,19 @@ def get_investigation(investigation_id: int):
     """
     GET /api/investigations/<id>
 
-    Retorna detalhes de uma investigação específica.
+    Retorna detalhes de uma investigação. **Só do dono** — retorna 404
+    (não 403, anti-enumeração) se não pertence ao usuário autenticado.
+    Investigations legadas (user_id=null) são visíveis pra qualquer user
+    logado.
     """
-    investigation = Investigation.query.get_or_404(investigation_id)
+    investigation = (
+        Investigation.query
+        .filter(
+            Investigation.id == investigation_id,
+            (Investigation.user_id == g.user.id) | (Investigation.user_id.is_(None)),
+        )
+        .first()
+    )
+    if investigation is None:
+        return jsonify({"error": "not found"}), 404
     return jsonify({"investigation": investigation.to_dict()})

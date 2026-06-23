@@ -8,6 +8,10 @@ class Investigation(db.Model):
 
     Metadados da investigação (título, descrição, entidade raiz)
     ficam no PostgreSQL, enquanto o grafo em si fica no Neo4j.
+
+    Multi-usuário (issue #2): cada investigação pertence a um User
+    (FK user_id). Endpoints filtram por dono automaticamente — user A
+    não vê, edita nem deleta investigações de user B.
     """
 
     __tablename__ = "investigations"
@@ -16,6 +20,12 @@ class Investigation(db.Model):
     title = db.Column(db.String(255), nullable=False)
     description = db.Column(db.Text, nullable=True)
     root_entity_id = db.Column(db.String(36), nullable=True, index=True)
+    user_id = db.Column(
+        db.Integer,
+        db.ForeignKey("users.id", ondelete="CASCADE"),
+        nullable=True,  # nullable=True pra permitir investigations antigas (criadas antes da #2)
+        index=True,
+    )
     created_at = db.Column(db.DateTime, default=lambda: datetime.now(timezone.utc))
     updated_at = db.Column(
         db.DateTime,
@@ -23,12 +33,16 @@ class Investigation(db.Model):
         onupdate=lambda: datetime.now(timezone.utc),
     )
 
+    # Relationship — permite acessar user via inv.user
+    user = db.relationship("User", backref=db.backref("investigations", lazy="dynamic"))
+
     def to_dict(self):
         return {
             "id": self.id,
             "title": self.title,
             "description": self.description,
             "root_entity_id": self.root_entity_id,
+            "user_id": self.user_id,
             "created_at": self.created_at.isoformat() if self.created_at else None,
             "updated_at": self.updated_at.isoformat() if self.updated_at else None,
         }
