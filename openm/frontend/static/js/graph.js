@@ -358,25 +358,32 @@ const Graph = {
         const existingNodeIds = new Set(cy.nodes().map(n => n.id()));
         const existingEdgeIds = new Set(cy.edges().map(e => e.id()));
 
+        // Mapa id -> existe no batch? Usado pra filtrar edges que referenciam
+        // nodes que não existem (nem em cy nem no batch — provavelmente dado
+        // corrompido do backend).
+        const batchNodeIds = new Set();
+
         const newNodes = (elements.nodes || [])
             .filter(n => n?.data?.id && !existingNodeIds.has(n.data.id))
-            .map(n => ({ group: 'nodes', data: n.data }));
+            .map(n => {
+                batchNodeIds.add(n.data.id);
+                return { group: 'nodes', data: n.data };
+            });
 
-        const newEdges = (elements.edges || [])
+        // Prepara edges SEM verificar se source/target existem (eles serão
+        // adicionados junto com os nodes logo abaixo).
+        const candidateEdges = (elements.edges || [])
             .filter(e => {
                 if (!e?.data) return false;
-                // Filtra chaves reservadas imediatamente: se `source` ou `target`
-                // foram sobrescritos por properties conflitantes, descarta.
                 const src = e.data.source;
                 const tgt = e.data.target;
                 if (!src || !tgt) return false;
                 if (typeof src !== 'string' || typeof tgt !== 'string') return false;
-                // Ignora se source/target parece ser uma property metadata (e.g. 'DNS')
                 if (src === tgt) return false;
+                if (existingEdgeIds.has(e.data.id)) return false;
                 return true;
             })
             .map(e => {
-                // Filtra chaves reservadas do edge
                 const safe = {
                     id: e.data.id,
                     source: e.data.source,
@@ -393,16 +400,18 @@ const Graph = {
                 }
                 return { group: 'edges', data: safe };
             })
+            // Filtra edges que apontam pra nodes que não existem nem em cy
+            // nem no batch. Cytoscape não rejeita essas edges graciosamente —
+            // emite warning e não cria a edge, mas polui o console.
             .filter(e => {
-                if (existingEdgeIds.has(e.data.id)) return false;
-                // Garante que os nós source/target existem no grafo
-                return cy.getElementById(e.data.source).length > 0 &&
-                       cy.getElementById(e.data.target).length > 0;
+                const srcExists = existingNodeIds.has(e.data.source) || batchNodeIds.has(e.data.source);
+                const tgtExists = existingNodeIds.has(e.data.target) || batchNodeIds.has(e.data.target);
+                return srcExists && tgtExists;
             });
 
-        if (newNodes.length === 0 && newEdges.length === 0) return;
+        if (newNodes.length === 0 && candidateEdges.length === 0) return;
 
-        cy.add([...newNodes, ...newEdges]);
+        cy.add([...newNodes, ...candidateEdges]);
         this.relayout();
     },
 

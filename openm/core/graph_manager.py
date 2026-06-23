@@ -120,8 +120,14 @@ class GraphManager:
         Varre tanto saídas quanto entradas do nó central para capturar
         contexto completo da investigação.
 
+        Aceita tanto o ``id`` interno da entidade (UUID) quanto o ``value``
+        legível (ex: "example.com") como ponto de partida. Isso é necessário
+        porque investigações gravam ``root_entity_id`` usando o value (que é
+        o que o usuário vê), mas o id interno do Neo4j é um UUID.
+
         Cypher:
-            MATCH path = (center:Entity {id: $center_id})-[r*1..depth]-(n)
+            MATCH path = (center:Entity)-[r*1..depth]-(n)
+            WHERE center.id = $center_id OR center.value = $center_id
             RETURN center, relationships(path) AS rels, nodes(path) AS nodes
 
         Nota: Neo4j não aceita parâmetro na profundidade de variação de
@@ -129,7 +135,8 @@ class GraphManager:
         """
         depth = max(1, min(depth, 5))  # limite de segurança
         query = (
-            f"MATCH path = (center:Entity {{id: $center_id}})-[r*1..{depth}]-(n) "
+            f"MATCH path = (center:Entity)-[r*1..{depth}]-(n) "
+            "WHERE center.id = $center_id OR center.value = $center_id "
             "RETURN center, relationships(path) AS rels, nodes(path) AS nodes"
         )
 

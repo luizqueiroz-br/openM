@@ -132,7 +132,8 @@ const App = {
         try {
             const data = await OpenMAPI.listInvestigations();
             const list = document.getElementById('investigations-list');
-            if (data.investigations.length === 0) {
+            if (!list) return;
+            if (!data.investigations || data.investigations.length === 0) {
                 list.innerHTML = '<li class="empty">Nenhuma investigação</li>';
                 return;
             }
@@ -146,15 +147,32 @@ const App = {
                 if (!li.classList.contains('empty')) {
                     li.addEventListener('click', async () => {
                         const rootId = li.dataset.root;
-                        if (rootId) {
-                            try {
-                                const sub = await OpenMAPI.getSubgraph(rootId, 2);
-                                cy.elements().remove();
-                                Graph.addElements(sub.elements);
-                                this.setStatus(`Investigação carregada.`, 'success');
-                            } catch (err) {
-                                this.setStatus(err.message, 'error');
+                        if (!rootId) {
+                            this.setStatus('Esta investigação não tem entidade raiz — não pode ser reaberta.', 'error');
+                            return;
+                        }
+                        try {
+                            const sub = await OpenMAPI.getSubgraph(rootId, 2);
+                            cy.elements().remove();
+                            // /api/subgraph pode retornar 2 formatos inconsistentes:
+                            //   1. Cytoscape cru: {elements: [{data}, ...]}
+                            //   2. Wrapper:        {elements: {nodes: [...], edges: [...]}}
+                            // Aceitamos ambos. Graph.addElements espera {nodes, edges}.
+                            let raw = [];
+                            const el = sub.elements;
+                            if (Array.isArray(el)) {
+                                raw = el;
+                            } else if (el && Array.isArray(el.nodes)) {
+                                raw = [...el.nodes, ...(el.edges || [])];
                             }
+                            const normalized = {
+                                nodes: raw.filter(e => e.data && !e.data.source),
+                                edges: raw.filter(e => e.data && e.data.source),
+                            };
+                            Graph.addElements(normalized);
+                            this.setStatus(`Investigação "${li.querySelector('.title')?.textContent || ''}" carregada.`, 'success');
+                        } catch (err) {
+                            this.setStatus(err.message, 'error');
                         }
                     });
                 }
@@ -173,8 +191,14 @@ const App = {
         }
         const rootId = Graph.selected ? Graph.selected.id() : null;
         try {
-            await OpenMAPI.createInvestigation(title, desc, rootId);
-            this.setStatus('Investigação criada.', 'success');
+            const result = await OpenMAPI.createInvestigation(title, desc, rootId);
+            const savedTitle = result?.investigation?.title || title;
+            const savedRoot = result?.investigation?.root_entity_id;
+            if (savedRoot) {
+                this.setStatus(`✓ Investigação "${savedTitle}" salva (com entidade raiz — pode ser reaberta).`, 'success');
+            } else {
+                this.setStatus(`⚠ Investigação "${savedTitle}" salva SEM entidade raiz — não vai poder ser reaberta pelo nome. Selecione um nó antes de salvar para incluir uma raiz.`, 'error');
+            }
             document.getElementById('inv-title').value = '';
             document.getElementById('inv-desc').value = '';
             this.loadInvestigations();
