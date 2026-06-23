@@ -1,0 +1,42 @@
+#!/usr/bin/env bash
+#
+# Pre-commit hook: AVISA se o Makefile for deletado.
+#
+# O Makefile é crítico pra subir o projeto local (DB + API + testes).
+# Já foi perdido em working tree não commitada antes. Este hook garante
+# que ninguém delete sem querer.
+#
+# Instalar: este arquivo é commitado em .githooks/pre-commit. Pra ativar:
+#   git config core.hooksPath .githooks
+#
+
+set -e
+
+# Detecta se algum commit staged está deletando o Makefile
+if git diff --cached --name-status | grep -E "^D[[:space:]]+Makefile$"; then
+    echo ""
+    echo "⚠️  ⚠️  ⚠️  ATENÇÃO  ⚠️  ⚠️  ⚠️"
+    echo ""
+    echo "Você está prestes a DELETAR o Makefile!"
+    echo ""
+    echo "O Makefile é CRÍTICO pra subir o projeto local. Ele contém os"
+    echo "alvos de dev: install, db-up, api, test, lint, debug, etc."
+    echo ""
+    echo "Se você REALMENTE quer deletar (raro!), use:"
+    echo "  git commit --no-verify"
+    echo ""
+    exit 1
+fi
+
+# Avisa se Makefile não existe na working tree
+if [ ! -f Makefile ]; then
+    echo ""
+    echo "⚠️  ATENÇÃO: Makefile NÃO está presente na working tree!"
+    echo ""
+    echo "O projeto não vai ter os comandos make (install, db-up, api, test)."
+    echo "Se você acabou de fazer checkout, o Makefile deveria existir."
+    echo "Se foi deletado por engano, faça:"
+    echo "  git checkout HEAD -- Makefile"
+    echo ""
+    # Não bloqueia — só avisa (pode ser intencional em alguns cenários)
+fi
