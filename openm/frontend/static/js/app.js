@@ -40,24 +40,31 @@ const App = {
                 { ...node },
             );
 
-            const newNodes = (result.entities || []).map(e => ({
-                data: {
-                    id: e.id,
-                    label: e.value,
-                    type: e.type,
-                    ...e.properties,
-                },
-            }));
+            const newNodes = (result.entities || []).map(e => {
+                const data = { id: e.id, label: e.value, type: e.type };
+                for (const [k, v] of Object.entries(e.properties || {})) {
+                    if (!['id', 'label', 'type'].includes(k)) {
+                        data[k] = v;
+                    }
+                }
+                return { data };
+            });
 
-            const newEdges = (result.relationships || []).map(r => ({
-                data: {
+            const newEdges = (result.relationships || []).map(r => {
+                const data = {
                     id: r.id || `edge-${r.from_id}-${r.to_id}-${r.type}-${Date.now()}-${Math.random()}`,
                     source: r.from_id,
                     target: r.to_id,
                     label: r.type,
-                    ...(r.properties || {}),
-                },
-            }));
+                };
+                // Adiciona properties extras sem sobrescrever chaves reservadas
+                for (const [k, v] of Object.entries(r.properties || {})) {
+                    if (!['id', 'source', 'target', 'label'].includes(k)) {
+                        data[k] = v;
+                    }
+                }
+                return { data };
+            });
 
             Graph.addElements({ nodes: newNodes, edges: newEdges });
             this.setStatus(

@@ -363,15 +363,42 @@ const Graph = {
             .map(n => ({ group: 'nodes', data: n.data }));
 
         const newEdges = (elements.edges || [])
-            .filter(e => e?.data?.source && e?.data?.target)
-            .map(e => {
-                if (!e.data.id) {
-                    e.data.id = `edge-${e.data.source}-${e.data.target}-${e.data.label || 'rel'}-${Date.now()}`;
-                }
-                return e;
+            .filter(e => {
+                if (!e?.data) return false;
+                // Filtra chaves reservadas imediatamente: se `source` ou `target`
+                // foram sobrescritos por properties conflitantes, descarta.
+                const src = e.data.source;
+                const tgt = e.data.target;
+                if (!src || !tgt) return false;
+                if (typeof src !== 'string' || typeof tgt !== 'string') return false;
+                // Ignora se source/target parece ser uma property metadata (e.g. 'DNS')
+                if (src === tgt) return false;
+                return true;
             })
-            .filter(e => !existingEdgeIds.has(e.data.id))
-            .map(e => ({ group: 'edges', data: e.data }));
+            .map(e => {
+                // Filtra chaves reservadas do edge
+                const safe = {
+                    id: e.data.id,
+                    source: e.data.source,
+                    target: e.data.target,
+                    label: e.data.label,
+                };
+                for (const [k, v] of Object.entries(e.data)) {
+                    if (!['id', 'source', 'target', 'label'].includes(k)) {
+                        safe[k] = v;
+                    }
+                }
+                if (!safe.id) {
+                    safe.id = `edge-${safe.source}-${safe.target}-${safe.label || 'rel'}-${Date.now()}`;
+                }
+                return { group: 'edges', data: safe };
+            })
+            .filter(e => {
+                if (existingEdgeIds.has(e.data.id)) return false;
+                // Garante que os nós source/target existem no grafo
+                return cy.getElementById(e.data.source).length > 0 &&
+                       cy.getElementById(e.data.target).length > 0;
+            });
 
         if (newNodes.length === 0 && newEdges.length === 0) return;
 

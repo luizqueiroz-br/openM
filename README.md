@@ -1,32 +1,57 @@
 # OpenM
 
-> Plataforma de investigação visual de vínculos (OSINT/CTI) estilo Maltego, com Flask, Neo4j, PostgreSQL e Cytoscape.js.
+> Plataforma open-source de investigação visual de vínculos (OSINT/CTI) estilo Maltego, com Flask, Neo4j, PostgreSQL e Cytoscape.js.
 
 ![Status](https://img.shields.io/badge/status-MVP-success)
 ![Stack](https://img.shields.io/badge/stack-Flask%20%7C%20Neo4j%20%7C%20PostgreSQL%20%7C%20Cytoscape.js-blue)
 ![License](https://img.shields.io/badge/license-MIT-green)
 
-## Sobre
+[English version](README.en.md)
 
-O **OpenM** é uma ferramenta open-source para investigação de vínculos em CTI (Cyber Threat Intelligence) e prevenção a fraudes. Permite criar entidades (domínios, IPs, e-mails, pessoas, contas, dispositivos), executar transforms reais (DNS, threat intel) e visualizar a rede de relações em um grafo interativo no estilo Maltego.
+---
 
-## ✨ Features
+## 📸 Screenshots
 
-- **Grafo interativo** com Cytoscape.js (drag, zoom, layout de força)
-- **6 tipos de entidades** com ícones distintos (Domain, IPAddress, Email, Person, BankAccount, Device)
+### Estado inicial
+![Empty state](docs/assets/01_empty.png)
+
+### Grafo com transform aplicado
+![Transform](docs/assets/03_transform.png)
+
+### Edge manual + Inspector com Transforms
+![Manual edge](docs/assets/04_manual_edge.png)
+
+### Context menu (botão direito no nó)
+![Context menu](docs/assets/05_context_menu.png)
+
+### Grafo completo com múltiplos transforms
+![Full graph](docs/assets/06_full_graph.png)
+
+### Demonstração animada
+![Demo](docs/assets/demo.gif)
+
+---
+
+## ✨ Funcionalidades
+
+- **Grafo interativo** com Cytoscape.js (drag, zoom, layout de força cose-bilkent)
+- **6 tipos de entidades** com ícones distintos:
+  - 🌐 Domain · 🛜 IPAddress · ✉ Email · 👤 Person · 💳 BankAccount · ▣ Device
 - **Transforms reais**:
-  - `ResolveIPTransform` — resolução DNS via `socket`
+  - `ResolveIPTransform` — resolução DNS via `socket.gethostbyname_ex`
   - `CheckFraudEmailTransform` — EmailRep.io, Have I Been Pwned
-- **Drag-and-drop da paleta** para criar nós no canvas
-- **Criar arestas manualmente** arrastando de nó a nó (edgehandles)
-- **Context menu** (botão direito) com Run Transform, Set Root, Start Link, Delete
-- **Inspector** com tabs (Propriedades, Transforms, Adjacentes) e edição inline
+- **Drag-and-drop da paleta** para o canvas cria entidades com modal
+- **Criar arestas manualmente** arrastando de nó a nó (edgehandles) com modal de tipo
+- **Context menu** (botão direito): Run Transform, Run All, Set as Root, Start Link, Edit, Copy, Delete
+- **Inspector lateral** com tabs (Propriedades, Transforms, Adjacentes) e edição inline
 - **Undo/Redo** (Ctrl+Z / Ctrl+Y)
 - **Export/Import** do grafo como JSON
 - **Investigações** persistidas no PostgreSQL
-- **Gerenciamento de API Keys** (free/paid) com máscara segura
+- **Gerenciamento de API Keys** free/paid com máscara segura
 - **Dark mode** refinado, fontes Inter e JetBrains Mono
-- **Atalhos de teclado**: F (fit), Esc (limpar), Delete (remover)
+- **Atalhos**: F (fit), Esc (limpar), Delete (remover)
+
+---
 
 ## 📦 Stack
 
@@ -35,15 +60,21 @@ O **OpenM** é uma ferramenta open-source para investigação de vínculos em CT
 - **RDBMS**: PostgreSQL 15 (metadados + API keys)
 - **Frontend**: Vanilla JS + Cytoscape.js 3.26
 - **Containerização**: Docker + Docker Compose
-- **Visualização**: Cytoscape.js com plugins `cose-bilkent`, `cxtmenu`, `edgehandles`
+
+Plugins Cytoscape:
+- `cytoscape-cose-bilkent@2.0.0` (layout de força)
+- `cytoscape-edgehandles@3.2.4` (drag-to-connect)
+- `cytoscape-cxtmenu@3.4.0` (context menu)
+
+---
 
 ## 🚀 Instalação
 
 ### Docker (recomendado)
 
 ```bash
-git clone https://github.com/<seu-usuario>/openm.git
-cd openm
+git clone https://github.com/luizqueiroz-br/openM.git
+cd openM
 docker compose up --build
 ```
 
@@ -56,23 +87,23 @@ Acesse:
 ### Local (sem Docker)
 
 ```bash
-git clone https://github.com/<seu-usuario>/openm.git
-cd openm
+git clone https://github.com/luizqueiroz-br/openM.git
+cd openM
 python -m venv venv
 source venv/bin/activate
 pip install -r requirements.txt
 
-# Configure o .env apontando para Neo4j/PostgreSQL locais
 cp .env.example .env
-# edite NEO4J_URI, DATABASE_URL, etc.
+# edite NEO4J_URI, DATABASE_URL conforme necessário
 
 # Crie as tabelas
 python -c "from openm.app import create_app; from openm.extensions import db; \
   app = create_app(); ctx = app.app_context(); ctx.push(); db.create_all()"
 
-# Rode
 flask run
 ```
+
+---
 
 ## 🧪 Testes
 
@@ -81,7 +112,9 @@ source venv/bin/activate
 pytest
 ```
 
-Cobertura atual: 13 testes (entidades, transforms, API).
+Cobertura: 13 testes (entidades, transforms, API).
+
+---
 
 ## 🗂 Estrutura
 
@@ -105,6 +138,8 @@ openm/
 └── app.py
 ```
 
+---
+
 ## 🌐 Endpoints
 
 | Método | Endpoint | Descrição |
@@ -117,9 +152,11 @@ openm/
 | DELETE | `/api/edge/<id>` | Remover vínculo |
 | DELETE | `/api/entity/<id>` | Remover entidade |
 | PATCH | `/api/entity/<id>` | Atualizar propriedades |
-| GET/POST/DELETE | `/api/investigations` | CRUD investigações |
+| GET/POST | `/api/investigations` | CRUD investigações |
 | GET/POST/DELETE | `/api/keys` | CRUD API keys |
 | GET | `/health` | Healthcheck |
+
+---
 
 ## 🔑 Configurando API Keys reais
 
@@ -128,13 +165,28 @@ openm/
 3. Selecione o serviço (EmailRep.io, HIBP, AbstractAPI, Shodan)
 4. Insira a chave
 5. Escolha Free ou Paid
-6. Salve — a chave é criptografada e usada pelos transforms
+6. Salve — a chave é armazenada e usada pelos transforms
 
-Sem chave, o `CheckFraudEmailTransform` usa simulação controlada.
+Sem chave cadastrada, o `CheckFraudEmailTransform` usa simulação controlada.
+
+---
+
+## 🎯 Como usar
+
+1. **Adicionar uma entidade**: arraste um card da palette esquerda para o canvas → modal de criação aparece
+2. **Botão direito** em um nó → menu com Run Transform, Set Root, Start Link, Delete
+3. **Criar vínculo**: arraste de um nó para outro (handle) → modal para escolher tipo de relação
+4. **Selecionar nó**: clique → Inspector abre com tabs (Propriedades, Transforms, Adjacentes)
+5. **Rodar transform**: na aba Transforms, clique em um botão
+6. **Salvar**: botão "Save" na topbar cria uma investigação
+7. **Exportar**: botão "Download" salva o grafo em JSON
+8. **Importar**: botão "Upload" carrega um grafo de JSON
+
+---
 
 ## 🛣 Roadmap
 
-- [ ] Mais transforms (Whois, GeoIP, Shodan)
+- [ ] Mais transforms (Whois, GeoIP, Shodan, VirusTotal)
 - [ ] Autenticação JWT
 - [ ] Compartilhamento de investigações entre usuários
 - [ ] Exportar grafo como PNG/SVG
@@ -142,9 +194,13 @@ Sem chave, o `CheckFraudEmailTransform` usa simulação controlada.
 - [ ] Filtros por tipo e propriedade
 - [ ] Modo colaborativo em tempo real (WebSocket)
 
+---
+
 ## 📝 Licença
 
 MIT — veja [LICENSE](LICENSE).
+
+---
 
 ## ⚠️ Aviso Legal
 
