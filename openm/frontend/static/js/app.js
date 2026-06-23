@@ -89,11 +89,10 @@ const App = {
 
     async updateNodeProperties(id, newProps) {
         try {
-            await fetch(`/api/entity/${id}`, {
-                method: 'PATCH',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ properties: newProps }),
-            });
+            // Usa OpenMAPI.updateEntity em vez de fetch direto pra que o
+            // interceptador global dispare refresh automático em 401
+            // (issue #17).
+            await OpenMAPI.updateEntity(id, newProps);
             // Atualiza no grafo
             const node = cy.getElementById(id);
             if (node.length) {
