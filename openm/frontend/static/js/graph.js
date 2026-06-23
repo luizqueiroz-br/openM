@@ -362,21 +362,20 @@ const Graph = {
             .filter(n => n?.data?.id && !existingNodeIds.has(n.data.id))
             .map(n => ({ group: 'nodes', data: n.data }));
 
-        const newEdges = (elements.edges || [])
+        // Prepara edges SEM verificar se source/target existem (eles serão
+        // adicionados junto com os nodes logo abaixo).
+        const candidateEdges = (elements.edges || [])
             .filter(e => {
                 if (!e?.data) return false;
-                // Filtra chaves reservadas imediatamente: se `source` ou `target`
-                // foram sobrescritos por properties conflitantes, descarta.
                 const src = e.data.source;
                 const tgt = e.data.target;
                 if (!src || !tgt) return false;
                 if (typeof src !== 'string' || typeof tgt !== 'string') return false;
-                // Ignora se source/target parece ser uma property metadata (e.g. 'DNS')
                 if (src === tgt) return false;
+                if (existingEdgeIds.has(e.data.id)) return false;
                 return true;
             })
             .map(e => {
-                // Filtra chaves reservadas do edge
                 const safe = {
                     id: e.data.id,
                     source: e.data.source,
@@ -392,17 +391,13 @@ const Graph = {
                     safe.id = `edge-${safe.source}-${safe.target}-${safe.label || 'rel'}-${Date.now()}`;
                 }
                 return { group: 'edges', data: safe };
-            })
-            .filter(e => {
-                if (existingEdgeIds.has(e.data.id)) return false;
-                // Garante que os nós source/target existem no grafo
-                return cy.getElementById(e.data.source).length > 0 &&
-                       cy.getElementById(e.data.target).length > 0;
             });
 
-        if (newNodes.length === 0 && newEdges.length === 0) return;
+        if (newNodes.length === 0 && candidateEdges.length === 0) return;
 
-        cy.add([...newNodes, ...newEdges]);
+        // Adiciona nodes e edges juntos. Cytoscape conecta edges aos nodes
+        // pelo source/target no mesmo batch atomicamente.
+        cy.add([...newNodes, ...candidateEdges]);
         this.relayout();
     },
 

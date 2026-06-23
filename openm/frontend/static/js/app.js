@@ -132,7 +132,8 @@ const App = {
         try {
             const data = await OpenMAPI.listInvestigations();
             const list = document.getElementById('investigations-list');
-            if (data.investigations.length === 0) {
+            if (!list) return;
+            if (!data.investigations || data.investigations.length === 0) {
                 list.innerHTML = '<li class="empty">Nenhuma investigação</li>';
                 return;
             }
@@ -146,15 +147,23 @@ const App = {
                 if (!li.classList.contains('empty')) {
                     li.addEventListener('click', async () => {
                         const rootId = li.dataset.root;
-                        if (rootId) {
-                            try {
-                                const sub = await OpenMAPI.getSubgraph(rootId, 2);
-                                cy.elements().remove();
-                                Graph.addElements(sub.elements);
-                                this.setStatus(`Investigação carregada.`, 'success');
-                            } catch (err) {
-                                this.setStatus(err.message, 'error');
-                            }
+                        if (!rootId) {
+                            this.setStatus('Esta investigação não tem entidade raiz — não pode ser reaberta.', 'error');
+                            return;
+                        }
+                        try {
+                            const sub = await OpenMAPI.getSubgraph(rootId, 2);
+                            cy.elements().remove();
+                            // Backend retorna Cytoscape cru: {elements: [{data}, ...]}
+                            // Graph.addElements espera wrapper: {nodes: [{data}], edges: [{data}]}
+                            const normalized = {
+                                nodes: (sub.elements || []).filter(e => e.data && !e.data.source),
+                                edges: (sub.elements || []).filter(e => e.data && e.data.source),
+                            };
+                            Graph.addElements(normalized);
+                            this.setStatus(`Investigação "${li.querySelector('.title')?.textContent || ''}" carregada.`, 'success');
+                        } catch (err) {
+                            this.setStatus(err.message, 'error');
                         }
                     });
                 }
