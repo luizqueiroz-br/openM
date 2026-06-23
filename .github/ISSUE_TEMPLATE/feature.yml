@@ -1,0 +1,48 @@
+---
+name: Feature request
+about: Sugerir uma nova funcionalidade
+title: "[FEATURE] "
+labels: ["enhancement", "status:in-review"]
+assignees: []
+---
+
+## Resumo
+<!-- Uma frase descrevendo a feature. -->
+
+## Motivação
+<!-- Que problema resolve? Para quem? -->
+
+## Solução proposta
+<!-- Como você imagina a implementação. -->
+
+## Alternativas consideradas
+<!-- Outras abordagens e por que esta é melhor. -->
+
+## Área
+- [ ] `area:backend`
+- [ ] `area:frontend`
+- [ ] `area:graph`
+- [ ] `area:transforms`
+- [ ] `area:infra`
+- [ ] `area:security`
+- [ ] `area:tests`
+- [ ] `area:docs`
+
+## Prioridade
+- [ ] `priority:critical`
+- [ ] `priority:high`
+- [ ] `priority:medium`
+- [ ] `priority:low`
+
+## Impacto
+- [ ] Breaking change (requer migration)
+- [ ] Requer migração de banco (Neo4j/Postgres)
+- [ ] Requer mudança de UI/UX
+
+## Critérios de aceitação
+- [ ] 
+- [ ] 
+- [ ] 
+
+## Mockups / referências
+<!-- Links, screenshots, esboços. -->

@@ -1,0 +1,44 @@
+name: Release Drafter
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  pull-requests: read
+
+jobs:
+  update-release-draft:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: release-drafter/release-drafter@v6
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          tag-prefix: v
+          name-template: "v$RESOLVED_VERSION"
+          version-resolver:
+            major:
+              labels: ["status:breaking-change"]
+            minor:
+              labels: ["type:feature", "enhancement"]
+            patch:
+              labels: ["bug", "type:refactor", "documentation", "type:chore"]
+          change-template: "- $TITLE (#$NUMBER) @$AUTHOR"
+          sort-by: title
+          categories:
+            - title: "🚨 Breaking Changes"
+              labels: ["status:breaking-change"]
+            - title: "🚀 Features"
+              labels: ["type:feature", "enhancement"]
+            - title: "🐛 Bugfixes"
+              labels: ["bug"]
+            - title: "♻️ Refactor"
+              labels: ["type:refactor"]
+            - title: "📝 Documentation"
+              labels: ["documentation", "area:docs"]
+            - title: "🔧 Maintenance"
+              labels: ["type:chore", "area:infra"]
+          exclude-labels: ["duplicate", "invalid", "wontfix"]

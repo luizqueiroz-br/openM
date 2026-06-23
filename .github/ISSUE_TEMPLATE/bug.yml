@@ -1,0 +1,51 @@
+---
+name: Bug report
+about: Reportar um comportamento incorreto ou falha
+title: "[BUG] "
+labels: ["bug", "status:in-review"]
+assignees: []
+---
+
+## Descrição
+<!-- Resumo claro e objetivo do bug. -->
+
+## Passos para reproduzir
+1.
+2.
+3.
+
+## Comportamento esperado
+<!-- O que deveria acontecer. -->
+
+## Comportamento atual
+<!-- O que de fato acontece. -->
+
+## Screenshots / Logs
+<!-- Se aplicável, cole screenshots, stacktraces ou logs. -->
+
+## Ambiente
+- OS:
+- Python:
+- Docker Compose / nativo:
+- Branch / commit:
+
+## Severidade
+- [ ] Crítico (impede uso)
+- [ ] Alto (funcionalidade importante quebrada)
+- [ ] Médio (workaround existe)
+- [ ] Baixo (cosmético / UX)
+
+## Área
+- [ ] `area:backend`
+- [ ] `area:frontend`
+- [ ] `area:graph`
+- [ ] `area:transforms`
+- [ ] `area:infra`
+- [ ] `area:security`
+- [ ] `area:tests`
+- [ ] `area:docs`
+
+## Checklist
+- [ ] Reproduzi localmente
+- [ ] Verifiquei issues abertas para evitar duplicata
+- [ ] Adicionei logs/screenshot relevantes

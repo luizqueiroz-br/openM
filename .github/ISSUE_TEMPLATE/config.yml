@@ -1,0 +1,8 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Discussões / Q&A
+    url: https://github.com/luizqueiroz-br/openM/discussions
+    about: Perguntas gerais e troca de ideias sobre o OpenM
+  - name: Segurança (vulnerabilidades)
+    url: https://github.com/luizqueiroz-br/openM/security/advisories/new
+    about: Reportar vulnerabilidades de forma privada

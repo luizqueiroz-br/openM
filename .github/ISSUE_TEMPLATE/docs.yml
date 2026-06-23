@@ -1,0 +1,36 @@
+---
+name: Documentation
+about: Melhoria ou criação de documentação
+title: "[DOCS] "
+labels: ["documentation", "area:docs"]
+assignees: []
+---
+
+## Tipo
+- [ ] Tutorial / guia
+- [ ] Referência de API
+- [ ] README / overview
+- [ ] Arquitetura / ADR
+- [ ] Comentários inline / docstrings
+- [ ] Tradução
+
+## Público
+- [ ] Usuário final
+- [ ] Desenvolvedor contribuindo
+- [ ] Operador / devops
+- [ ] Pesquisador OSINT/CTI
+
+## Conteúdo proposto
+<!-- Esboço do que será escrito. -->
+
+## Local sugerido
+- [ ] `README.md` / `README.en.md`
+- [ ] `docs/`
+- [ ] `.github/`
+- [ ] Docstrings no código
+- [ ] Wiki do repo
+
+## Checklist
+- [ ] Revisado por outro contribuidor
+- [ ] Sem link quebrado
+- [ ] Screenshots/GIFs atualizados (se aplicável)

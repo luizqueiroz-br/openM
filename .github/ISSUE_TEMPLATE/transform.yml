@@ -1,0 +1,43 @@
+---
+name: Transform request
+about: Sugerir ou especificar um transform OSINT (resolver / enricher)
+title: "[TRANSFORM] "
+labels: ["enhancement", "type:feature", "area:transforms", "status:in-review"]
+assignees: []
+---
+
+## Provedor / Fonte OSINT
+<!-- Ex.: Shodan, VirusTotal, Hunter.io, Whois, GeoIP, PhoneInfoga, etc. -->
+
+## Entidades de entrada aceitas
+<!-- Quais tipos de nó podem disparar este transform? -->
+- [ ] Domain
+- [ ] IPAddress
+- [ ] Email
+- [ ] Person
+- [ ] BankAccount
+- [ ] Device
+
+## Entidades de saída produzidas
+<!-- O que o transform retorna? -->
+-
+
+## API
+- **Endpoint**: `<url>`
+- **Método**: `GET` / `POST`
+- **Auth**: `free` / `paid` (qual key?)
+- **Rate limit**: 
+- **Documentação**:
+
+## Configuração no OpenM
+<!-- Como será registrado em `transforms/registry.py` ou similar. -->
+
+## Critérios de aceitação
+- [ ] Implementa interface `BaseTransform`
+- [ ] Trata rate-limit e falhas de rede
+- [ ] Marca edges com `provenance: <provider>`
+- [ ] Testes com fixtures/mocks do provider
+- [ ] Documentado no README
+
+## Notas
+<!-- Plano free vs. pago, alternativas se a API cair, etc. -->
