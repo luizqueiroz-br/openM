@@ -11,7 +11,12 @@ from openm.api import (
     investigations_bp,
     keys_bp,
     transforms_bp,
+    auth_bp,
 )
+
+# Importa models para garantir que db.create_all() registre as tabelas
+# (incluindo users e revoked_tokens usadas pela autenticação JWT).
+from openm import models  # noqa: E402, F401
 
 # Importa transforms para registro automático no TransformRegistry.
 # Deve ocorrer antes de as rotas consultarem quais transforms existem.
@@ -43,6 +48,7 @@ def create_app(config_class=Config) -> Flask:
     app.register_blueprint(graph_bp)
     app.register_blueprint(investigations_bp)
     app.register_blueprint(keys_bp)
+    app.register_blueprint(auth_bp)
 
     @app.route("/")
     def index():

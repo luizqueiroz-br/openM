@@ -28,3 +28,24 @@ class Config:
 
     # CORS liberado para uso local
     CORS_ORIGINS: str = os.environ.get("CORS_ORIGINS", "*")
+
+    # === Auth / JWT ===
+    # JWT_SECRET: reutiliza SECRET_KEY se não houver um específico para auth.
+    JWT_SECRET: str = os.environ.get("JWT_SECRET", os.environ.get("SECRET_KEY", "dev-secret-key"))
+    JWT_ALGORITHM: str = os.environ.get("JWT_ALGORITHM", "HS256")
+
+    # TTLs (em minutos para access, dias para refresh).
+    JWT_ACCESS_TTL_MINUTES: int = int(os.environ.get("JWT_ACCESS_TTL_MINUTES", "15"))
+    JWT_REFRESH_TTL_DAYS: int = int(os.environ.get("JWT_REFRESH_TTL_DAYS", "7"))
+
+    # Issuer / audience incluídos nos claims.
+    JWT_ISSUER: str = os.environ.get("JWT_ISSUER", "openm")
+    JWT_AUDIENCE: str = os.environ.get("JWT_AUDIENCE", "openm-api")
+
+    # Política de registro: padrão FALSE em produção.
+    # Para primeiro deploy/local, defina ALLOW_REGISTRATION=true.
+    ALLOW_REGISTRATION: bool = os.environ.get("ALLOW_REGISTRATION", "false").lower() in (
+        "1",
+        "true",
+        "yes",
+    )
