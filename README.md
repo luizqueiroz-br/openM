@@ -187,13 +187,16 @@ Sem chave cadastrada, o `CheckFraudEmailTransform` usa simulação controlada.
 
 ## 🛣 Roadmap
 
+- [x] Autenticação JWT + refresh tokens (issue #1)
+- [x] RBAC: admin/analyst/viewer (issue #3)
 - [ ] Mais transforms (Whois, GeoIP, Shodan, VirusTotal)
-- [ ] Autenticação JWT
 - [ ] Compartilhamento de investigações entre usuários
 - [ ] Exportar grafo como PNG/SVG
 - [ ] Anotações livres sobre nós
 - [ ] Filtros por tipo e propriedade
 - [ ] Modo colaborativo em tempo real (WebSocket)
+
+Para detalhes de autenticação, veja [docs/auth.md](docs/auth.md). Para a matriz de permissões por papel, veja [docs/rbac.md](docs/rbac.md).
 
 ---
 

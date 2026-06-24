@@ -31,12 +31,12 @@
             </div>
             <div class="toolbar">
                 <button class="btn icon" id="btn-fit" title="Ajustar à tela (F)"><i class="fa-solid fa-expand"></i></button>
-                <button class="btn icon" id="btn-clear" title="Limpar grafo"><i class="fa-solid fa-trash"></i></button>
-                <button class="btn icon" id="btn-undo" title="Desfazer (Ctrl+Z)"><i class="fa-solid fa-rotate-left"></i></button>
-                <button class="btn icon" id="btn-redo" title="Refazer (Ctrl+Y)"><i class="fa-solid fa-rotate-right"></i></button>
-                <button class="btn icon" id="btn-save" title="Salvar investigação"><i class="fa-solid fa-floppy-disk"></i></button>
+                <button class="btn icon" id="btn-clear" title="Limpar grafo" data-roles="admin,analyst"><i class="fa-solid fa-trash"></i></button>
+                <button class="btn icon" id="btn-undo" title="Desfazer (Ctrl+Z)" data-roles="admin,analyst"><i class="fa-solid fa-rotate-left"></i></button>
+                <button class="btn icon" id="btn-redo" title="Refazer (Ctrl+Y)" data-roles="admin,analyst"><i class="fa-solid fa-rotate-right"></i></button>
+                <button class="btn icon" id="btn-save" title="Salvar investigação" data-roles="admin,analyst"><i class="fa-solid fa-floppy-disk"></i></button>
                 <button class="btn icon" id="btn-export" title="Exportar JSON"><i class="fa-solid fa-download"></i></button>
-                <button class="btn icon" id="btn-import" title="Importar JSON"><i class="fa-solid fa-upload"></i></button>
+                <button class="btn icon" id="btn-import" title="Importar JSON" data-roles="admin,analyst"><i class="fa-solid fa-upload"></i></button>
                 <input type="file" id="file-input" accept="application/json" style="display:none">
             </div>
             <div class="spacer"></div>
@@ -46,6 +46,7 @@
             <div class="user-info">
                 <i class="fa-solid fa-user-circle"></i>
                 <span id="user-email"></span>
+                <span id="user-role" class="role-badge" data-role=""></span>
                 <a class="btn icon" id="btn-logout" href="/logout" title="Sair">
                     <i class="fa-solid fa-right-from-bracket"></i>
                 </a>
@@ -71,7 +72,7 @@
                     <h3><i class="fa-solid fa-clock-rotate-left"></i>Investigações</h3>
                     <input type="text" id="inv-title" placeholder="Título...">
                     <textarea id="inv-desc" rows="2" placeholder="Descrição..." style="margin-top:0.4rem"></textarea>
-                    <button class="btn primary" id="btn-create-inv" style="width:100%; margin-top:0.4rem">
+                    <button class="btn primary" id="btn-create-inv" style="width:100%; margin-top:0.4rem" data-roles="admin,analyst">
                         <i class="fa-solid fa-plus"></i>Nova Investigação
                     </button>
                     <div class="inv-filters">
@@ -91,18 +92,18 @@
                 </div>
                 <div class="sidebar-section">
                     <h3><i class="fa-solid fa-key"></i>API Keys</h3>
-                    <select id="key-service">
+                    <select id="key-service" data-roles="admin,analyst">
                         <option value="emailrep">EmailRep.io</option>
                         <option value="hibp">Have I Been Pwned</option>
                         <option value="abstractapi">AbstractAPI</option>
                         <option value="shodan">Shodan</option>
                     </select>
-                    <input type="text" id="key-value" placeholder="Chave..." style="margin-top:0.4rem">
-                    <select id="key-type" style="margin-top:0.4rem">
+                    <input type="text" id="key-value" placeholder="Chave..." style="margin-top:0.4rem" data-roles="admin,analyst">
+                    <select id="key-type" style="margin-top:0.4rem" data-roles="admin,analyst">
                         <option value="free">Free</option>
                         <option value="paid">Paid</option>
                     </select>
-                    <button class="btn primary" id="btn-save-key" style="width:100%; margin-top:0.4rem">
+                    <button class="btn primary" id="btn-save-key" style="width:100%; margin-top:0.4rem" data-roles="admin,analyst">
                         <i class="fa-solid fa-save"></i>Salvar Chave
                     </button>
                     <ul class="list" id="keys-list"></ul>
@@ -155,6 +156,7 @@
     <!-- Scripts principais -->
     <script src="{{ url_for('static', filename='js/api.js') }}"></script>
     <script src="{{ url_for('static', filename='js/icons.js') }}"></script>
+    <script src="{{ url_for('static', filename='js/permissions.js') }}"></script>
     <script src="{{ url_for('static', filename='js/modals.js') }}"></script>
     <script src="{{ url_for('static', filename='js/inspector.js') }}"></script>
     <script src="{{ url_for('static', filename='js/palette.js') }}"></script>
