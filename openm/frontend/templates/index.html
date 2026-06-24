@@ -108,6 +108,32 @@
                     </button>
                     <ul class="list" id="keys-list"></ul>
                 </div>
+
+                <!-- ========== Administração (issue #42) ==========
+                     Visível apenas para role='admin' via data-roles.
+                     A UI esconde via permissions.js + o backend revalida
+                     com @require_role("admin") em openm/api/admin.py.
+                -->
+                <div class="sidebar-section" id="admin-section" data-roles="admin">
+                    <h3><i class="fa-solid fa-users-gear"></i>Administração</h3>
+                    <button class="btn small" id="admin-refresh" style="width:100%; margin-bottom:0.4rem">
+                        <i class="fa-solid fa-rotate"></i>Atualizar
+                    </button>
+                    <div id="admin-error" class="admin-error" hidden></div>
+                    <table class="admin-table">
+                        <thead>
+                            <tr>
+                                <th>Email</th>
+                                <th>Role</th>
+                                <th>Criado</th>
+                                <th>Ações</th>
+                            </tr>
+                        </thead>
+                        <tbody id="admin-users-tbody">
+                            <tr><td colspan="4" class="admin-empty">Carregando...</td></tr>
+                        </tbody>
+                    </table>
+                </div>
             </aside>
 
             <!-- ====== CANVAS (CENTRO) ====== -->
@@ -161,6 +187,7 @@
     <script src="{{ url_for('static', filename='js/inspector.js') }}"></script>
     <script src="{{ url_for('static', filename='js/palette.js') }}"></script>
     <script src="{{ url_for('static', filename='js/graph.js') }}"></script>
+    <script src="{{ url_for('static', filename='js/admin.js') }}"></script>
     <script src="{{ url_for('static', filename='js/auth.js') }}"></script>
     <script src="{{ url_for('static', filename='js/app.js') }}"></script></body>
 </html>
