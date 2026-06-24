@@ -569,6 +569,18 @@ const App = {
         if (user) {
             const el = document.getElementById('user-email');
             if (el) el.textContent = user.email;
+
+            // Exibe o role como badge ao lado do email (issue #3).
+            const roleEl = document.getElementById('user-role');
+            if (roleEl) {
+                roleEl.textContent = user.role;
+                roleEl.dataset.role = user.role;
+            }
+
+            // Esconde elementos cujo data-roles não inclui o role do user.
+            if (window.OpenMPermissions) {
+                window.OpenMPermissions.applyRoleGates(user);
+            }
         }
         // Se bootstrap falhou, já redirecionou pra /login.
     },

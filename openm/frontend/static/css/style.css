@@ -925,3 +925,40 @@ label {
     text-overflow: ellipsis;
     white-space: nowrap;
 }
+
+/* ==============================================================
+   Topbar - role badge (issue #3)
+   Mostra o role do usuário como um badge colorido ao lado do email.
+   Cor varia por role: admin (vermelho), analyst (azul), viewer (cinza).
+   ============================================================== */
+
+.topbar .user-info .role-badge {
+    display: inline-block;
+    padding: 0.1rem 0.5rem;
+    border-radius: 4px;
+    font-size: 0.7rem;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    background: var(--bg-elev2, #2a2a2a);
+    color: var(--text-dim, #888);
+    border: 1px solid var(--border, #333);
+}
+
+.topbar .user-info .role-badge[data-role="admin"] {
+    background: rgba(220, 53, 69, 0.15);
+    color: #ff6b78;
+    border-color: rgba(220, 53, 69, 0.4);
+}
+
+.topbar .user-info .role-badge[data-role="analyst"] {
+    background: rgba(13, 110, 253, 0.15);
+    color: #6ea8fe;
+    border-color: rgba(13, 110, 253, 0.4);
+}
+
+.topbar .user-info .role-badge[data-role="viewer"] {
+    background: rgba(108, 117, 125, 0.15);
+    color: #adb5bd;
+    border-color: rgba(108, 117, 125, 0.4);
+}

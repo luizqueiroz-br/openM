@@ -1,7 +1,7 @@
 from flask import Blueprint, jsonify, request
 from pydantic import BaseModel, Field, ValidationError
 
-from openm.core.auth import require_auth
+from openm.core.auth import require_auth, require_role
 from openm.extensions import db
 from openm.models.api_key import ApiKey
 
@@ -32,6 +32,7 @@ def list_keys():
 
 @keys_bp.route("/keys", methods=["POST"])
 @require_auth
+@require_role("admin", "analyst")
 def create_or_update_key():
     """
     POST /api/keys
@@ -67,6 +68,7 @@ def create_or_update_key():
 
 @keys_bp.route("/keys/<int:key_id>", methods=["DELETE"])
 @require_auth
+@require_role("admin", "analyst")
 def delete_key(key_id: int):
     """
     DELETE /api/keys/<id>

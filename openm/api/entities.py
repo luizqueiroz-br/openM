@@ -1,7 +1,7 @@
 from flask import Blueprint, jsonify, request
 from pydantic import BaseModel, ConfigDict, ValidationError
 
-from openm.core.auth import require_auth
+from openm.core.auth import require_auth, require_role
 from openm.core.entity import ENTITY_CLASSES
 from openm.utils.neo4j_client import get_graph_manager
 
@@ -30,6 +30,7 @@ def _extract_properties(data: dict) -> dict:
 
 @entities_bp.route("/entity", methods=["POST"])
 @require_auth
+@require_role("admin", "analyst")
 def create_entity():
     """
     POST /api/entity
@@ -58,6 +59,7 @@ def create_entity():
 
 @entities_bp.route("/entity/<entity_id>", methods=["PATCH"])
 @require_auth
+@require_role("admin", "analyst")
 def update_entity(entity_id: str):
     """
     PATCH /api/entity/<id>
@@ -80,6 +82,7 @@ def update_entity(entity_id: str):
 
 @entities_bp.route("/entity/<entity_id>", methods=["DELETE"])
 @require_auth
+@require_role("admin", "analyst")
 def delete_entity(entity_id: str):
     """
     DELETE /api/entity/<id>

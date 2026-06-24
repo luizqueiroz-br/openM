@@ -5,12 +5,20 @@
 # - Flask roda local com hot-reload (outro terminal)
 #
 # Uso básico:
-#   make install      # primeira vez: cria venv + deps
-#   make db-up        # sobe postgres + neo4j
-#   make api          # roda flask local (precisa do venv ativado)
-#   make test         # roda pytest
-#   make db-down      # para tudo
+#   make install        # primeira vez: cria venv + deps
+#   make db-up          # sobe postgres + neo4j
+#   make api            # roda flask local (precisa do venv ativado)
+#   make test           # roda pytest
+#   make db-down        # para tudo
+#   make create-admin   # cria/promove um admin (requer EMAIL e PASSWORD)
 #
+# Variáveis úteis (todas opcionais, com defaults):
+#   EMAIL=admin@x.com       email do admin a criar/promover
+#   PASSWORD='s3nh@F0rte'   senha do admin (≥8 chars)
+#   FORCE=1                 promove ao invés de falhar se email já existe
+#   ADMIN_VIA=cli|script    estratégia: 'cli' (flask admin create-admin) ou
+#                           'script' (scripts/create_admin.py standalone,
+#                           ideal para Kame sem venv completo)
 
 PYTHON ?= python3
 VENV   ?= venv
@@ -23,7 +31,8 @@ export
 endif
 
 .PHONY: help venv install db-up db-down db-logs db-status db-reset \
-        api api-shell test test-auth test-api test-issue14 lint debug clean reset
+        api api-shell test test-auth test-api test-issue14 lint debug clean reset \
+        create-admin create-admin-cli create-admin-script
 
 help: ## Mostra esta ajuda
 	@awk 'BEGIN {FS = ":.*?## "} /^[a-zA-Z_-]+:.*?## .*$$/ {printf "  \033[36m%-15s\033[0m %s\n", $$1, $$2}' $(MAKEFILE_LIST)
@@ -84,6 +93,67 @@ test-issue14: ## Roda reproducer Playwright da issue #14
 
 lint: ## flake8 em openm/ e tests/
 	. $(VENV)/bin/activate && flake8 openm/ tests/ --max-line-length=120 --extend-ignore=E203,W503
+
+# ============ Admin / Bootstrap ============
+#
+# Criar o primeiro admin do sistema (issue #3). Necessário em produção
+# porque ``ALLOW_REGISTRATION=false`` bloqueia a auto-criação de admins
+# via API. Há duas receitas equivalentes:
+#
+#   make create-admin-cli EMAIL=admin@x.com PASSWORD='senha-forte-123'
+#       Usa o comando Flask ``admin create-admin`` (requer venv completo
+#       com openm instalado).
+#
+#   make create-admin-script EMAIL=admin@x.com PASSWORD='senha-forte-123'
+#       Usa ``scripts/create_admin.py`` standalone. Funciona sem o venv
+#       completo — só precisa de ``psycopg2-binary`` e ``bcrypt``.
+#       Ideal para rodar no Kame ou em containers efêmeros.
+#
+# ``create-admin`` é um wrapper que detecta automaticamente: usa o
+# script standalone se disponível (mais resiliente), senão cai pro CLI.
+#
+# Variáveis:
+#   EMAIL     (obrigatório) email do admin
+#   PASSWORD  (obrigatório) senha com no mínimo 8 caracteres
+#   FORCE=1                 promove usuário existente ao invés de abortar
+
+create-admin: create-admin-script ## Cria/promove admin (auto-detecta CLI ou script)
+
+create-admin-cli: ## Cria admin via Flask CLI (requer venv)
+	@if [ -z "$(EMAIL)" ]; then \
+		echo "✗ EMAIL não definido. Uso: make create-admin-cli EMAIL=admin@x.com PASSWORD='senha-forte-123'"; \
+		exit 2; \
+	fi
+	@if [ -z "$(PASSWORD)" ]; then \
+		echo "✗ PASSWORD não definido. Uso: make create-admin-cli EMAIL=admin@x.com PASSWORD='senha-forte-123'"; \
+		exit 2; \
+	fi
+	. $(VENV)/bin/activate && flask --app openm.app admin create-admin \
+		--email '$(EMAIL)' --password '$(PASSWORD)' $(if $(FORCE),--force)
+
+create-admin-script: ## Cria admin via scripts/create_admin.py (standalone, ideal p/ Kame)
+	@if [ -z "$(EMAIL)" ]; then \
+		echo "✗ EMAIL não definido. Uso: make create-admin-script EMAIL=admin@x.com PASSWORD='senha-forte-123'"; \
+		exit 2; \
+	fi
+	@if [ -z "$(PASSWORD)" ]; then \
+		echo "✗ PASSWORD não definido. Uso: make create-admin-script EMAIL=admin@x.com PASSWORD='senha-forte-123'"; \
+		exit 2; \
+	fi
+	@if [ -x "$(VENV)/bin/python" ]; then \
+		echo "→ usando Python do venv ($(VENV)/bin/python)"; \
+		$(VENV)/bin/python scripts/create_admin.py \
+			--email '$(EMAIL)' --password '$(PASSWORD)' $(if $(FORCE),--force) \
+			$(if $(strip $(DATABASE_URL)),--database-url '$(DATABASE_URL)',) \
+			$(if $(NO_COLOR),--no-color,); \
+	else \
+		echo "→ venv não encontrado em $(VENV)/ — usando $(PYTHON) do sistema"; \
+		echo "  (instale psycopg2-binary e bcrypt para o fallback funcionar)"; \
+		$(PYTHON) scripts/create_admin.py \
+			--email '$(EMAIL)' --password '$(PASSWORD)' $(if $(FORCE),--force) \
+			$(if $(strip $(DATABASE_URL)),--database-url '$(DATABASE_URL)',) \
+			$(if $(NO_COLOR),--no-color,); \
+	fi
 
 # ============ Debug ============
 

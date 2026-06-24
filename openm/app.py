@@ -6,6 +6,7 @@ from flask_cors import CORS
 from openm.config import Config
 from openm.extensions import db, limiter
 from openm.api import (
+    admin_bp,
     entities_bp,
     graph_bp,
     investigations_bp,
@@ -50,9 +51,14 @@ def create_app(config_class=Config) -> Flask:
     app.register_blueprint(investigations_bp)
     app.register_blueprint(keys_bp)
     app.register_blueprint(auth_bp)
+    app.register_blueprint(admin_bp)
 
     # Páginas HTML (login/registro/logout)
     app.register_blueprint(frontend_bp)
+
+    # CLI customizado (ex.: flask admin create-admin)
+    from openm.cli import admin_cli
+    app.cli.add_command(admin_cli)
 
     @app.route("/")
     def index():

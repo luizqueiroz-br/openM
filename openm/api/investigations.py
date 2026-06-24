@@ -19,7 +19,7 @@ from typing import Any
 from flask import Blueprint, g, jsonify, request
 from pydantic import BaseModel, ValidationError
 
-from openm.core.auth import require_auth
+from openm.core.auth import require_auth, require_role
 from openm.extensions import db
 from openm.models.investigation import Investigation
 
@@ -72,6 +72,7 @@ def _save_investigation(inv: Investigation) -> None:
 
 @investigations_bp.route("/investigations", methods=["POST"])
 @require_auth
+@require_role("admin", "analyst")
 def create_investigation():
     """
     POST /api/investigations
@@ -172,6 +173,7 @@ def get_investigation(investigation_id: int):
 
 @investigations_bp.route("/investigations/<int:investigation_id>", methods=["PUT"])
 @require_auth
+@require_role("admin", "analyst")
 def update_investigation(investigation_id: int):
     """
     PUT /api/investigations/<id>
@@ -228,6 +230,7 @@ def update_investigation(investigation_id: int):
 
 @investigations_bp.route("/investigations/<int:investigation_id>/archive", methods=["POST"])
 @require_auth
+@require_role("admin", "analyst")
 def archive_investigation(investigation_id: int):
     """
     POST /api/investigations/<id>/archive
@@ -248,6 +251,7 @@ def archive_investigation(investigation_id: int):
 
 @investigations_bp.route("/investigations/<int:investigation_id>/unarchive", methods=["POST"])
 @require_auth
+@require_role("admin", "analyst")
 def unarchive_investigation(investigation_id: int):
     """
     POST /api/investigations/<id>/unarchive
