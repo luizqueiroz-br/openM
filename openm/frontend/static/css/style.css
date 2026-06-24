@@ -962,3 +962,159 @@ label {
     color: #adb5bd;
     border-color: rgba(108, 117, 125, 0.4);
 }
+
+/* ==============================================================
+   Sidebar - Administração de usuários (issue #42)
+   Tabela de gerenciamento de usuários visível só para role=admin.
+   Cores das role-badges reusam as variáveis da topbar.
+   ============================================================== */
+
+#admin-section .btn.small {
+    font-size: 0.75rem;
+    padding: 0.3rem 0.5rem;
+    display: inline-flex;
+    align-items: center;
+    gap: 0.3rem;
+}
+
+#admin-error {
+    background: rgba(220, 53, 69, 0.12);
+    color: #ff6b78;
+    border: 1px solid rgba(220, 53, 69, 0.3);
+    border-radius: 4px;
+    padding: 0.4rem 0.6rem;
+    margin-bottom: 0.5rem;
+    font-size: 0.8rem;
+    word-break: break-word;
+}
+
+.admin-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 0.8rem;
+}
+
+.admin-table thead th {
+    text-align: left;
+    padding: 0.4rem 0.3rem;
+    border-bottom: 1px solid var(--border, #333);
+    color: var(--text-dim, #888);
+    font-weight: 600;
+    text-transform: uppercase;
+    font-size: 0.7rem;
+    letter-spacing: 0.05em;
+}
+
+.admin-table tbody td {
+    padding: 0.4rem 0.3rem;
+    border-bottom: 1px solid var(--border, #333);
+    vertical-align: middle;
+}
+
+.admin-table tbody tr:hover {
+    background: rgba(255, 255, 255, 0.03);
+}
+
+.admin-col-email {
+    word-break: break-all;
+    max-width: 130px;
+}
+
+.admin-col-created {
+    color: var(--text-dim, #888);
+    white-space: nowrap;
+}
+
+.admin-col-actions {
+    display: flex;
+    gap: 0.3rem;
+    align-items: center;
+}
+
+.admin-col-actions select {
+    padding: 0.2rem 0.3rem;
+    background: var(--bg-elev2, #2a2a2a);
+    color: var(--text, #eee);
+    border: 1px solid var(--border, #333);
+    border-radius: 3px;
+    font-size: 0.75rem;
+    cursor: pointer;
+}
+
+.admin-col-actions select:disabled {
+    opacity: 0.4;
+    cursor: not-allowed;
+}
+
+.admin-col-actions .btn {
+    font-size: 0.7rem;
+    padding: 0.25rem 0.5rem;
+    border: none;
+    border-radius: 3px;
+    cursor: pointer;
+    white-space: nowrap;
+}
+
+.admin-col-actions .btn.primary {
+    background: rgba(13, 110, 253, 0.25);
+    color: #6ea8fe;
+    border: 1px solid rgba(13, 110, 253, 0.5);
+}
+
+.admin-col-actions .btn.primary:hover {
+    background: rgba(13, 110, 253, 0.4);
+}
+
+.admin-col-actions .btn.danger {
+    background: rgba(220, 53, 69, 0.2);
+    color: #ff6b78;
+    border: 1px solid rgba(220, 53, 69, 0.4);
+}
+
+.admin-col-actions .btn.danger:hover {
+    background: rgba(220, 53, 69, 0.35);
+}
+
+.admin-col-actions .btn:disabled {
+    opacity: 0.4;
+    cursor: not-allowed;
+}
+
+.admin-empty {
+    text-align: center;
+    color: var(--text-dim, #888);
+    font-style: italic;
+    padding: 0.8rem 0.3rem;
+}
+
+/* Role badge reusado dentro da tabela (cores consistentes com topbar). */
+.admin-table .role-badge {
+    display: inline-block;
+    padding: 0.1rem 0.4rem;
+    border-radius: 3px;
+    font-size: 0.65rem;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    background: var(--bg-elev2, #2a2a2a);
+    color: var(--text-dim, #888);
+    border: 1px solid var(--border, #333);
+}
+
+.admin-table .role-badge[data-role="admin"] {
+    background: rgba(220, 53, 69, 0.15);
+    color: #ff6b78;
+    border-color: rgba(220, 53, 69, 0.4);
+}
+
+.admin-table .role-badge[data-role="analyst"] {
+    background: rgba(13, 110, 253, 0.15);
+    color: #6ea8fe;
+    border-color: rgba(13, 110, 253, 0.4);
+}
+
+.admin-table .role-badge[data-role="viewer"] {
+    background: rgba(108, 117, 125, 0.15);
+    color: #adb5bd;
+    border-color: rgba(108, 117, 125, 0.4);
+}

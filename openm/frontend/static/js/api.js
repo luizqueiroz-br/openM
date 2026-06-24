@@ -196,6 +196,23 @@ const OpenMAPI = {
         }),
 
     deleteKey: (id) => api(`/keys/${id}`, { method: 'DELETE' }),
+
+    // ============ Admin (issue #3, #42) ============
+    // Endpoints exclusivos de role='admin'. A UI esconde os elementos
+    // via data-roles, mas o backend revalida — nunca confie só na UI.
+    listUsers: () => api('/admin/users'),
+
+    setUserRole: (userId, role) =>
+        api(`/admin/users/${userId}/role`, {
+            method: 'PATCH',
+            body: JSON.stringify({ role }),
+        }),
+
+    setUserActive: (userId, isActive) =>
+        api(`/admin/users/${userId}/active`, {
+            method: 'PATCH',
+            body: JSON.stringify({ is_active: isActive }),
+        }),
 };
 
 // ============ Auth bootstrap ============
