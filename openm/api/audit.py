@@ -22,7 +22,6 @@ from __future__ import annotations
 from datetime import datetime
 
 from flask import Blueprint, jsonify, request
-from sqlalchemy import and_
 
 from openm.core.auth import require_auth, require_role
 from openm.models.audit_log import AuditLog

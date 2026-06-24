@@ -18,7 +18,6 @@ from __future__ import annotations
 from datetime import datetime, timedelta, timezone
 
 import pytest
-from freezegun import freeze_time
 
 from openm.core.audit import (
     _sanitize,  # interno — coberto diretamente para fixar contrato
