@@ -308,6 +308,33 @@ def test_admin_cannot_deactivate_self(admin_client):
     assert resp.status_code == 409
 
 
+def test_admin_cannot_deactivate_last_active_admin(admin_client, app, monkeypatch):
+    """
+    Defesa em profundidade: admin tentando desativar OUTRO admin que é o
+    único admin ativo é bloqueado. Mockamos o contador para simular.
+    """
+    with app.app_context():
+        target = User(
+            email="last-admin-to-deact@example.com",
+            password_hash=hash_password("x-password-12"),
+            role="admin",
+            is_active=True,
+        )
+        db.session.add(target)
+        db.session.commit()
+        target_id = target.id
+
+    import openm.api.admin as admin_module
+    monkeypatch.setattr(admin_module, "_count_active_admins", lambda: 1)
+
+    resp = admin_client.patch(
+        f"/api/admin/users/{target_id}/active",
+        json={"is_active": False},
+    )
+    assert resp.status_code == 409
+    assert "last active admin" in resp.get_json()["error"]
+
+
 # ===================== Cenários integrados =====================
 
 def test_viewer_can_list_investigations(viewer_client, app):
@@ -328,3 +355,78 @@ def test_viewer_cannot_create_investigation(viewer_client):
         json={"title": "viewer trying"},
     )
     assert resp.status_code == 403
+
+
+# ===================== Admin: payload validation =====================
+
+def test_admin_role_change_invalid_payload_returns_400(admin_client, app):
+    """PATCH /role com payload faltando o campo 'role' → 400 ValidationError."""
+    target_id = _create_user(app, email="rbac-bad-payload@example.com")
+
+    resp = admin_client.patch(
+        f"/api/admin/users/{target_id}/role",
+        json={},  # sem o campo obrigatório 'role'
+    )
+    assert resp.status_code == 400
+
+
+def test_admin_active_change_invalid_payload_returns_400(admin_client, app):
+    """PATCH /active com payload faltando o campo 'is_active' → 400."""
+    target_id = _create_user(app, email="rbac-bad-active@example.com")
+
+    resp = admin_client.patch(
+        f"/api/admin/users/{target_id}/active",
+        json={},  # sem o campo obrigatório 'is_active'
+    )
+    assert resp.status_code == 400
+
+
+def test_admin_active_change_404_for_unknown_user(admin_client):
+    """PATCH /active em user inexistente → 404 (linha 152 do admin.py)."""
+    resp = admin_client.patch(
+        "/api/admin/users/99999/active",
+        json={"is_active": False},
+    )
+    assert resp.status_code == 404
+
+
+# ===================== Admin: edge cases de role inválida =====================
+
+def test_admin_role_change_empty_string_rejected(admin_client, app):
+    """PATCH /role com role string vazia → 400 (não está em VALID_ROLES)."""
+    target_id = _create_user(app, email="rbac-empty-role@example.com")
+
+    resp = admin_client.patch(
+        f"/api/admin/users/{target_id}/role",
+        json={"role": ""},
+    )
+    assert resp.status_code == 400
+
+
+# ===================== Admin: list users edge cases =====================
+
+def test_admin_list_users_empty_when_no_users(admin_client, app):
+    """Lista vazia quando não há outros usuários (apenas o admin logado)."""
+    # Limpa todos os usuários exceto o admin logado.
+    with app.app_context():
+        admin_email = "admin@example.com"
+        User.query.filter(User.email != admin_email).delete()
+        db.session.commit()
+
+    resp = admin_client.get("/api/admin/users")
+    assert resp.status_code == 200
+    users = resp.get_json()["users"]
+    # Pelo menos o admin logado está lá.
+    assert any(u["email"] == "admin@example.com" for u in users)
+
+
+def test_admin_list_users_includes_newly_created(admin_client, app):
+    """Usuário criado via API aparece na listagem seguinte."""
+    target_id = _create_user(app, email="rbac-listing@example.com", role="viewer")
+
+    resp = admin_client.get("/api/admin/users")
+    assert resp.status_code == 200
+    users = resp.get_json()["users"]
+    target = next(u for u in users if u["id"] == target_id)
+    assert target["role"] == "viewer"
+    assert target["is_active"] is True
