@@ -17,6 +17,11 @@ from pydantic import BaseModel, Field, ValidationError
 from flask import Blueprint, g, jsonify, request
 
 from openm.core.auth import require_auth, require_role
+from openm.core.audit import (
+    log_action,
+    ACTION_USER_ACTIVE_CHANGE,
+    ACTION_USER_ROLE_CHANGE,
+)
 from openm.extensions import db
 from openm.models.user import User, VALID_ROLES
 
@@ -89,7 +94,8 @@ def update_user_role(user_id: int):
         return jsonify({"error": f"role must be one of {list(VALID_ROLES)}"}), 400
 
     is_self = target.id == g.user.id
-    was_admin = target.role == "admin"
+    old_role = target.role
+    was_admin = old_role == "admin"
     becomes_non_admin = payload.role != "admin"
 
     if is_self and was_admin and becomes_non_admin:
@@ -106,6 +112,19 @@ def update_user_role(user_id: int):
 
     target.role = payload.role
     db.session.commit()
+    # Auditoria: registra mudança de role. Capturamos old_role ANTES da
+    # mutação para ter o valor original.
+    log_action(
+        action=ACTION_USER_ROLE_CHANGE,
+        target_type="user",
+        target_id=str(target.id),
+        user_id=g.user.id,
+        metadata={
+            "old_role": old_role,
+            "new_role": payload.role,
+            "target_email": target.email,
+        },
+    )
     return jsonify({"user": target.to_dict()}), 200
 
 
@@ -155,4 +174,16 @@ def update_user_active(user_id: int):
 
     target.is_active = payload.is_active
     db.session.commit()
+    # Auditoria: registra ativação/desativação de conta.
+    log_action(
+        action=ACTION_USER_ACTIVE_CHANGE,
+        target_type="user",
+        target_id=str(target.id),
+        user_id=g.user.id,
+        metadata={
+            "old_is_active": is_currently_active,
+            "new_is_active": payload.is_active,
+            "target_email": target.email,
+        },
+    )
     return jsonify({"user": target.to_dict()}), 200

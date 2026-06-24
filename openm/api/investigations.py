@@ -20,6 +20,13 @@ from flask import Blueprint, g, jsonify, request
 from pydantic import BaseModel, ValidationError
 
 from openm.core.auth import require_auth, require_role
+from openm.core.audit import (
+    log_action,
+    ACTION_INVESTIGATION_CREATE,
+    ACTION_INVESTIGATION_UPDATE,
+    ACTION_INVESTIGATION_ARCHIVE,
+    ACTION_INVESTIGATION_UNARCHIVE,
+)
 from openm.extensions import db
 from openm.models.investigation import Investigation
 
@@ -93,6 +100,18 @@ def create_investigation():
         user_id=g.user.id,
     )
     _save_investigation(investigation)
+    # Auditoria: criação de investigação. description pode ter PII — não
+    # passamos no metadata; só tamanho como metadado opcional.
+    log_action(
+        action=ACTION_INVESTIGATION_CREATE,
+        target_type="investigation",
+        target_id=str(investigation.id),
+        user_id=g.user.id,
+        metadata={
+            "title": investigation.title,
+            "root_entity_id": investigation.root_entity_id,
+        },
+    )
     return jsonify({"investigation": investigation.to_dict()}), 201
 
 
@@ -204,17 +223,42 @@ def update_investigation(investigation_id: int):
             }), 400
 
     # Aplica mudanças (só as enviadas)
-    if payload.title is not None:
+    changed_fields: list[str] = []
+    if payload.title is not None and payload.title != investigation.title:
+        changed_fields.append("title")
         investigation.title = payload.title
-    if payload.description is not None:
+    if payload.description is not None and payload.description != investigation.description:
+        changed_fields.append("description")
         investigation.description = payload.description
 
+    snapshot_size_kb: int | None = None
     if payload.graph_snapshot is not None:
+        changed_fields.append("graph_snapshot")
         investigation.graph_snapshot = payload.graph_snapshot
         # Auto-save: registra o momento
         investigation.last_auto_save_at = datetime.now(timezone.utc)
+        # Tamanho aproximado como metadado (não o conteúdo!).
+        try:
+            snapshot_size_kb = round(
+                len(str(payload.graph_snapshot).encode("utf-8")) / 1024, 2
+            )
+        except Exception:  # noqa: BLE001
+            snapshot_size_kb = None
 
     _save_investigation(investigation)
+
+    # Auditoria: atualização de investigação. Registramos quais campos
+    # mudaram + tamanho do snapshot (não o conteúdo).
+    log_action(
+        action=ACTION_INVESTIGATION_UPDATE,
+        target_type="investigation",
+        target_id=str(investigation.id),
+        user_id=g.user.id,
+        metadata={
+            "changed_fields": changed_fields,
+            "snapshot_size_kb": snapshot_size_kb,
+        },
+    )
 
     return jsonify({
         "investigation": investigation.to_dict(),
@@ -244,6 +288,12 @@ def archive_investigation(investigation_id: int):
 
     investigation.archive()
     _save_investigation(investigation)
+    log_action(
+        action=ACTION_INVESTIGATION_ARCHIVE,
+        target_type="investigation",
+        target_id=str(investigation.id),
+        user_id=g.user.id,
+    )
     return jsonify({"investigation": investigation.to_dict()})
 
 
@@ -265,4 +315,10 @@ def unarchive_investigation(investigation_id: int):
 
     investigation.unarchive()
     _save_investigation(investigation)
+    log_action(
+        action=ACTION_INVESTIGATION_UNARCHIVE,
+        target_type="investigation",
+        target_id=str(investigation.id),
+        user_id=g.user.id,
+    )
     return jsonify({"investigation": investigation.to_dict()})
