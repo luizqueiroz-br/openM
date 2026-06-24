@@ -16,7 +16,6 @@ from openm.app import create_app
 from openm.config import Config
 from openm.core.auth import hash_password
 from openm.extensions import db
-from openm.models.investigation import Investigation
 from openm.models.user import User
 
 
