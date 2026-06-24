@@ -311,10 +311,16 @@ const App = {
     },
 
     /**
-     * Abre uma investigation: busca o snapshot do PG (não usa Neo4j) e
-     * carrega no grafo. Inicia auto-save. (issue #27)
+     * Abre uma investigation: salva a atual (se houver mudanças), busca o
+     * snapshot do PG e carrega no grafo. Inicia auto-save. (issue #27)
      */
     async openInvestigation(id) {
+        // Salva a investigation atual antes de trocar (se houver mudanças)
+        if (AutoSave.currentInvestigationId && AutoSave.currentInvestigationId !== id && AutoSave.hasChanges) {
+            this.setStatus('Salvando investigation atual antes de trocar...', 'info');
+            await AutoSave.tick();
+        }
+
         try {
             const data = await OpenMAPI.getInvestigation(id);
             const inv = data.investigation;
@@ -332,6 +338,27 @@ const App = {
         }
     },
 
+    /**
+     * Salva a investigation atual (se houver uma aberta) ou cria uma nova.
+     * Chamado pelo botão Salvar (btn-save) e pelo atalho de teclado.
+     */
+    async saveInvestigation() {
+        // Se tem uma investigation aberta, salva nela
+        if (AutoSave.currentInvestigationId) {
+            try {
+                this.setStatus('Salvando...', 'info');
+                await AutoSave.tick();
+                this.setStatus('✓ Investigation salva.', 'success');
+            } catch (err) {
+                this.setStatus(err.message, 'error');
+            }
+            return;
+        }
+
+        // Senão, cria uma nova
+        await this.createInvestigation();
+    },
+
     async createInvestigation() {
         const title = document.getElementById('inv-title').value.trim();
         const desc = document.getElementById('inv-desc').value.trim();
@@ -339,23 +366,23 @@ const App = {
             this.setStatus('Título é obrigatório', 'error');
             return;
         }
-        const rootId = Graph.selected ? Graph.selected.id() : null;
         try {
-            const result = await OpenMAPI.createInvestigation(title, desc, rootId);
+            const result = await OpenMAPI.createInvestigation(title, desc, null);
             const savedTitle = result?.investigation?.title || title;
             const savedId = result?.investigation?.id;
-            const savedRoot = result?.investigation?.root_entity_id;
 
-            // Inicia auto-save pra essa investigation (issue #28)
+            // Salva o snapshot atual do grafo na nova investigation
             if (savedId) {
+                const snapshot = Graph.exportJson();
+                const cleanSnapshot = {
+                    nodes: snapshot.nodes || [],
+                    edges: snapshot.edges || [],
+                };
+                await OpenMAPI.updateInvestigation(savedId, { graph_snapshot: cleanSnapshot });
                 AutoSave.start(savedId);
             }
 
-            if (savedRoot) {
-                this.setStatus(`✓ Investigação "${savedTitle}" salva (com entidade raiz — pode ser reaberta).`, 'success');
-            } else {
-                this.setStatus(`⚠ Investigação "${savedTitle}" salva SEM entidade raiz — não vai poder ser reaberta pelo nome. Selecione um nó antes de salvar para incluir uma raiz.`, 'error');
-            }
+            this.setStatus(`✓ Investigação "${savedTitle}" criada e salva.`, 'success');
             document.getElementById('inv-title').value = '';
             document.getElementById('inv-desc').value = '';
             this.loadInvestigations();
@@ -452,7 +479,7 @@ const App = {
         document.getElementById('btn-clear').addEventListener('click', () => Graph.clear());
         document.getElementById('btn-undo').addEventListener('click', () => Graph.undo());
         document.getElementById('btn-redo').addEventListener('click', () => Graph.redo());
-        document.getElementById('btn-save').addEventListener('click', () => this.createInvestigation());
+        document.getElementById('btn-save').addEventListener('click', () => this.saveInvestigation());
         document.getElementById('btn-export').addEventListener('click', () => this.exportGraph());
         document.getElementById('btn-import').addEventListener('click', () => this.importGraph());
 
