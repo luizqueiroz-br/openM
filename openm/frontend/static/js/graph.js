@@ -319,6 +319,18 @@ const Graph = {
         // Após qualquer adição, atualiza contagem
         cy.on('add', () => this._updateCount());
 
+        // Hooks para auto-save (issue #28): qualquer mudança no grafo
+        // marca como dirty, pra ser salva no próximo tick de AutoSave.
+        // Não disparamos em eventos sintéticos (clear, importJson) — esses
+        // manipulam _suppressDirty.
+        const onChange = () => {
+            if (this._suppressDirty) return;
+            if (window.AutoSave) window.AutoSave.markDirty();
+        };
+        cy.on('add', onChange);
+        cy.on('remove', onChange);
+        cy.on('data', onChange);
+
         // ESC limpa seleção
         document.addEventListener('keydown', (e) => {
             if (e.key === 'Escape' && this.selected) {
@@ -501,7 +513,11 @@ const Graph = {
             message: 'Todas as entidades e vínculos serão removidos da tela (não serão apagados do Neo4j).',
             danger: true,
             onConfirm: () => {
+                // Suprime markDirty durante a operação em massa
+                this._suppressDirty = true;
                 cy.elements().remove();
+                this._suppressDirty = false;
+                if (window.AutoSave) window.AutoSave.stop();
                 App.setStatus('Grafo limpo.', 'info');
             },
         });
@@ -582,12 +598,62 @@ const Graph = {
 
     importJson(data) {
         if (!cy || !data) return;
+        this._suppressDirty = true;
         cy.elements().remove();
         const nodes = (data.nodes || []).map(n => ({ group: 'nodes', data: n }));
         const edges = (data.edges || []).map(e => ({ group: 'edges', data: e }));
         cy.add([...nodes, ...edges]);
+        this._suppressDirty = false;
         this.relayout();
         App.setStatus(`Importado: ${nodes.length} nós, ${edges.length} arestas.`, 'success');
+    },
+
+    /**
+     * Carrega um snapshot de investigation no grafo (issue #27).
+     * Suporta 2 formatos:
+     *   1. { nodes: [...], edges: [...] }  (formato novo, v2)
+     *   2. { elements: [{data}, ...] }     (formato legacy do /api/subgraph)
+     * Idempotente: limpa antes de adicionar.
+     */
+    loadSnapshot(snapshot) {
+        if (!cy) return;
+        this._suppressDirty = true;
+        cy.elements().remove();
+
+        if (!snapshot) {
+            this._suppressDirty = false;
+            return;
+        }
+
+        let nodes = [];
+        let edges = [];
+
+        if (Array.isArray(snapshot.nodes) || Array.isArray(snapshot.edges)) {
+            // Formato v2
+            nodes = snapshot.nodes || [];
+            edges = snapshot.edges || [];
+        } else if (Array.isArray(snapshot.elements)) {
+            // Formato legacy: separar nodes de edges
+            for (const el of snapshot.elements) {
+                if (!el || !el.data) continue;
+                if (el.data.source) edges.push(el.data);
+                else nodes.push(el.data);
+            }
+        }
+
+        cy.add([
+            ...nodes.map(n => ({ group: 'nodes', data: n })),
+            ...edges.map(e => ({ group: 'edges', data: e })),
+        ]);
+
+        this._suppressDirty = false;
+        // Render inicial: tenta usar posições do snapshot; senão, layout
+        const hasPositions = nodes.some(n => n.position);
+        if (hasPositions) {
+            cy.fit(undefined, 30);
+        } else {
+            this.relayout();
+        }
     },
 };
 

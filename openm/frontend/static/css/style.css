@@ -636,6 +636,84 @@ label {
 .list li .title { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .list li .meta { font-size: 0.7rem; color: var(--text-faint); }
 
+/* Investigation filters (issue #27) */
+.inv-filters {
+    display: flex;
+    flex-direction: column;
+    gap: 0.3rem;
+    margin-top: 0.5rem;
+}
+.inv-filter-input,
+.inv-filter-select {
+    width: 100%;
+    padding: 0.35rem 0.5rem;
+    background: var(--bg-input, var(--bg-card));
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    color: var(--text);
+    font-size: 0.8rem;
+    font-family: inherit;
+}
+.inv-filter-input:focus,
+.inv-filter-select:focus {
+    outline: none;
+    border-color: var(--accent);
+}
+
+/* Investigation list item with actions (issue #27) */
+.list li.inv-item { padding: 0.3rem 0.5rem; }
+.list li.inv-item .inv-actions {
+    display: none;
+    gap: 0.2rem;
+    margin-left: 0.3rem;
+}
+.list li.inv-item:hover .inv-actions,
+.list li.inv-item.active .inv-actions {
+    display: inline-flex;
+}
+.list li.inv-item .inv-actions button {
+    background: transparent;
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    color: var(--text-dim);
+    cursor: pointer;
+    padding: 0.15rem 0.35rem;
+    font-size: 0.7rem;
+    transition: all 0.15s;
+}
+.list li.inv-item .inv-actions button:hover {
+    border-color: var(--accent);
+    color: var(--accent);
+}
+.list li.inv-item .inv-actions button.danger:hover {
+    border-color: var(--danger);
+    color: var(--danger);
+}
+.list li.inv-item.archived { opacity: 0.6; }
+.list li.inv-item .status-dot {
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+    background: var(--success);
+    flex-shrink: 0;
+}
+.list li.inv-item.archived .status-dot { background: var(--text-faint); }
+.list li.inv-item.current { border-color: var(--accent); background: var(--bg-card-hover); }
+
+/* Auto-save indicator (issue #28) */
+#save-status {
+    font-size: 0.75rem;
+    color: var(--text-faint);
+    padding: 0 0.5rem;
+    font-family: 'JetBrains Mono', monospace;
+    min-width: 110px;
+    text-align: center;
+}
+#save-status.dirty { color: var(--warn); }
+#save-status.saving { color: var(--accent); }
+#save-status.saved { color: var(--success); }
+#save-status.error { color: var(--danger); }
+
 .tag {
     display: inline-block;
     padding: 0.1rem 0.4rem;

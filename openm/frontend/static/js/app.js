@@ -2,6 +2,109 @@
  * App - orquestração principal do OpenM.
  */
 
+/**
+ * AutoSave (issue #28) — salva o grafo no backend a cada 2 minutos
+ * se houver mudanças (snapshot via PUT /api/investigations/<id>).
+ *
+ * Lifecycle:
+ *   start(id)  — começar a observar (chamar ao criar/abrir investigation)
+ *   stop()     — parar (limpar grafo, arquivar, logout)
+ *   markDirty() — marcar como tendo mudanças (chamado pelo Graph em add/remove/data)
+ *   tick()     — chamado a cada 2min; se dirty, faz PUT
+ *   render()   — atualiza o indicador #save-status
+ */
+const AutoSave = {
+    intervalId: null,
+    intervalMs: 2 * 60 * 1000,
+    currentInvestigationId: null,
+    hasChanges: false,
+    _saving: false,
+    _lastError: null,
+
+    start(investigationId) {
+        this.stop();
+        if (!investigationId) return;
+        this.currentInvestigationId = investigationId;
+        this.hasChanges = false;
+        this._saving = false;
+        this._lastError = null;
+        this.intervalId = setInterval(() => this.tick(), this.intervalMs);
+        this.render();
+    },
+
+    stop() {
+        if (this.intervalId) clearInterval(this.intervalId);
+        this.intervalId = null;
+        this.currentInvestigationId = null;
+        this.hasChanges = false;
+        this._saving = false;
+        this.render();
+    },
+
+    markDirty() {
+        if (!this.currentInvestigationId) return;
+        this.hasChanges = true;
+        this.render();
+    },
+
+    async tick() {
+        if (!this.hasChanges || !this.currentInvestigationId || this._saving) return;
+        this._saving = true;
+        this.render();
+
+        try {
+            const snapshot = Graph.exportJson();
+            // Remove o campo 'exported_at' antes de salvar (é metadata local)
+            const cleanSnapshot = {
+                nodes: snapshot.nodes || [],
+                edges: snapshot.edges || [],
+            };
+            await OpenMAPI.updateInvestigation(
+                this.currentInvestigationId,
+                { graph_snapshot: cleanSnapshot }
+            );
+            this.hasChanges = false;
+            this._lastError = null;
+        } catch (err) {
+            // Mantém hasChanges=true pra tentar de novo no próximo tick
+            this._lastError = err.message || 'erro desconhecido';
+            console.error('Auto-save falhou:', err);
+        } finally {
+            this._saving = false;
+            this.render();
+        }
+    },
+
+    render() {
+        const el = document.getElementById('save-status');
+        if (!el) return;
+
+        if (!this.currentInvestigationId) {
+            el.textContent = '—';
+            el.className = '';
+            return;
+        }
+        if (this._saving) {
+            el.textContent = '⏳ Salvando...';
+            el.className = 'saving';
+            return;
+        }
+        if (this._lastError) {
+            el.textContent = `✗ ${this._lastError}`;
+            el.className = 'error';
+            return;
+        }
+        if (this.hasChanges) {
+            el.textContent = '● Não salvo';
+            el.className = 'dirty';
+            return;
+        }
+        el.textContent = '✓ Salvo';
+        el.className = 'saved';
+    },
+};
+window.AutoSave = AutoSave;
+
 const App = {
     setStatus(message, type = 'info') {
         const el = document.getElementById('status-msg');
@@ -129,53 +232,101 @@ const App = {
 
     async loadInvestigations() {
         try {
-            const data = await OpenMAPI.listInvestigations();
+            // Lê filtros da UI
+            const status = document.getElementById('inv-status-filter')?.value || 'active';
+            const sort = document.getElementById('inv-sort')?.value || '-updated_at';
+            const search = document.getElementById('inv-search')?.value.trim() || '';
+
+            const data = await OpenMAPI.listInvestigations({ status, sort, search });
             const list = document.getElementById('investigations-list');
             if (!list) return;
+
             if (!data.investigations || data.investigations.length === 0) {
-                list.innerHTML = '<li class="empty">Nenhuma investigação</li>';
+                const emptyMsg = search
+                    ? `Nenhuma investigação encontrada para "${escapeHtml(search)}"`
+                    : status === 'archived'
+                        ? 'Nenhuma investigação arquivada'
+                        : 'Nenhuma investigação';
+                list.innerHTML = `<li class="empty">${emptyMsg}</li>`;
                 return;
             }
-            list.innerHTML = data.investigations.map(inv => `
-                <li data-root="${inv.root_entity_id || ''}" data-id="${inv.id}">
-                    <span class="title">${escapeHtml(inv.title)}</span>
-                    <span class="meta">${inv.created_at ? new Date(inv.created_at).toLocaleDateString() : ''}</span>
-                </li>
-            `).join('');
-            list.querySelectorAll('li').forEach(li => {
-                if (!li.classList.contains('empty')) {
-                    li.addEventListener('click', async () => {
-                        const rootId = li.dataset.root;
-                        if (!rootId) {
-                            this.setStatus('Esta investigação não tem entidade raiz — não pode ser reaberta.', 'error');
-                            return;
-                        }
-                        try {
-                            const sub = await OpenMAPI.getSubgraph(rootId, 2);
-                            cy.elements().remove();
-                            // /api/subgraph pode retornar 2 formatos inconsistentes:
-                            //   1. Cytoscape cru: {elements: [{data}, ...]}
-                            //   2. Wrapper:        {elements: {nodes: [...], edges: [...]}}
-                            // Aceitamos ambos. Graph.addElements espera {nodes, edges}.
-                            let raw = [];
-                            const el = sub.elements;
-                            if (Array.isArray(el)) {
-                                raw = el;
-                            } else if (el && Array.isArray(el.nodes)) {
-                                raw = [...el.nodes, ...(el.edges || [])];
+
+            list.innerHTML = data.investigations.map(inv => {
+                const isArchived = inv.status === 'archived';
+                const date = inv.updated_at || inv.created_at;
+                const isCurrent = AutoSave.currentInvestigationId === inv.id;
+                return `
+                    <li class="inv-item ${isArchived ? 'archived' : ''} ${isCurrent ? 'current' : ''}"
+                        data-id="${inv.id}" data-archived="${isArchived}">
+                        <span class="status-dot"></span>
+                        <span class="title">${escapeHtml(inv.title)}</span>
+                        <span class="meta">${date ? new Date(date).toLocaleDateString() : ''}</span>
+                        <div class="inv-actions">
+                            <button class="js-open" title="Abrir">
+                                <i class="fa-solid fa-folder-open"></i>
+                            </button>
+                            <button class="js-toggle-archive" title="${isArchived ? 'Desarquivar' : 'Arquivar'}">
+                                <i class="fa-solid ${isArchived ? 'fa-box-open' : 'fa-box-archive'}"></i>
+                            </button>
+                        </div>
+                    </li>`;
+            }).join('');
+
+            // Event delegation: cada botão executa sua ação
+            list.querySelectorAll('li.inv-item').forEach(li => {
+                const id = parseInt(li.dataset.id, 10);
+                const isArchived = li.dataset.archived === 'true';
+
+                li.querySelector('.js-open')?.addEventListener('click', async (e) => {
+                    e.stopPropagation();
+                    await this.openInvestigation(id);
+                });
+
+                li.querySelector('.js-toggle-archive')?.addEventListener('click', async (e) => {
+                    e.stopPropagation();
+                    try {
+                        if (isArchived) {
+                            await OpenMAPI.unarchiveInvestigation(id);
+                            this.setStatus('Investigação desarquivada.', 'success');
+                        } else {
+                            await OpenMAPI.archiveInvestigation(id);
+                            this.setStatus('Investigação arquivada.', 'success');
+                            // Se era a investigation aberta, para auto-save
+                            if (AutoSave.currentInvestigationId === id) {
+                                AutoSave.stop();
                             }
-                            const normalized = {
-                                nodes: raw.filter(e => e.data && !e.data.source),
-                                edges: raw.filter(e => e.data && e.data.source),
-                            };
-                            Graph.addElements(normalized);
-                            this.setStatus(`Investigação "${li.querySelector('.title')?.textContent || ''}" carregada.`, 'success');
-                        } catch (err) {
-                            this.setStatus(err.message, 'error');
                         }
-                    });
-                }
+                        this.loadInvestigations();
+                    } catch (err) {
+                        this.setStatus(err.message, 'error');
+                    }
+                });
+
+                // Click no item (não nos botões) também abre
+                li.addEventListener('click', () => this.openInvestigation(id));
             });
+        } catch (err) {
+            this.setStatus(err.message, 'error');
+        }
+    },
+
+    /**
+     * Abre uma investigation: busca o snapshot do PG (não usa Neo4j) e
+     * carrega no grafo. Inicia auto-save. (issue #27)
+     */
+    async openInvestigation(id) {
+        try {
+            const data = await OpenMAPI.getInvestigation(id);
+            const inv = data.investigation;
+
+            // Carrega snapshot no Graph (com fallback se for legacy/null)
+            Graph.loadSnapshot(inv.graph_snapshot);
+
+            // Inicia auto-save
+            AutoSave.start(id);
+
+            this.setStatus(`Investigação "${inv.title}" carregada.`, 'success');
+            this.loadInvestigations();  // atualiza "current" marker
         } catch (err) {
             this.setStatus(err.message, 'error');
         }
@@ -192,7 +343,14 @@ const App = {
         try {
             const result = await OpenMAPI.createInvestigation(title, desc, rootId);
             const savedTitle = result?.investigation?.title || title;
+            const savedId = result?.investigation?.id;
             const savedRoot = result?.investigation?.root_entity_id;
+
+            // Inicia auto-save pra essa investigation (issue #28)
+            if (savedId) {
+                AutoSave.start(savedId);
+            }
+
             if (savedRoot) {
                 this.setStatus(`✓ Investigação "${savedTitle}" salva (com entidade raiz — pode ser reaberta).`, 'success');
             } else {
@@ -310,6 +468,19 @@ const App = {
         // Sidebar
         document.getElementById('btn-create-inv').addEventListener('click', () => this.createInvestigation());
         document.getElementById('btn-save-key').addEventListener('click', () => this.saveKey());
+
+        // Filtros de investigations (issue #27)
+        // Search com debounce de 300ms pra não spammar a API enquanto digita
+        const invSearch = document.getElementById('inv-search');
+        if (invSearch) {
+            let invSearchTimer = null;
+            invSearch.addEventListener('input', () => {
+                clearTimeout(invSearchTimer);
+                invSearchTimer = setTimeout(() => this.loadInvestigations(), 300);
+            });
+        }
+        document.getElementById('inv-status-filter')?.addEventListener('change', () => this.loadInvestigations());
+        document.getElementById('inv-sort')?.addEventListener('change', () => this.loadInvestigations());
 
         // Keyboard shortcuts
         document.addEventListener('keydown', (e) => {

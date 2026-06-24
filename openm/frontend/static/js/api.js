@@ -151,14 +151,36 @@ const OpenMAPI = {
     getSubgraph: (entityId, depth = 2) =>
         api(`/subgraph/${encodeURIComponent(entityId)}?depth=${depth}`),
 
-    // ============ Investigations ============
+    // ============ Investigations (v2 — issues #26, #27, #28) ============
     createInvestigation: (title, description, rootEntityId) =>
         api('/investigations', {
             method: 'POST',
             body: JSON.stringify({ title, description, root_entity_id: rootEntityId }),
         }),
 
-    listInvestigations: () => api('/investigations'),
+    listInvestigations: (params = {}) => {
+        // params: { status, search, sort }
+        const qs = new URLSearchParams();
+        if (params.status) qs.set('status', params.status);
+        if (params.search) qs.set('search', params.search);
+        if (params.sort) qs.set('sort', params.sort);
+        const suffix = qs.toString() ? `?${qs.toString()}` : '';
+        return api(`/investigations${suffix}`);
+    },
+
+    getInvestigation: (id) => api(`/investigations/${id}`),
+
+    updateInvestigation: (id, changes) =>
+        api(`/investigations/${id}`, {
+            method: 'PUT',
+            body: JSON.stringify(changes),
+        }),
+
+    archiveInvestigation: (id) =>
+        api(`/investigations/${id}/archive`, { method: 'POST' }),
+
+    unarchiveInvestigation: (id) =>
+        api(`/investigations/${id}/unarchive`, { method: 'POST' }),
 
     // ============ API Keys ============
     listKeys: () => api('/keys'),

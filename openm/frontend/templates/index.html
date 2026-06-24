@@ -74,6 +74,19 @@
                     <button class="btn primary" id="btn-create-inv" style="width:100%; margin-top:0.4rem">
                         <i class="fa-solid fa-plus"></i>Nova Investigação
                     </button>
+                    <div class="inv-filters">
+                        <input type="text" id="inv-search" placeholder="Buscar..." class="inv-filter-input">
+                        <select id="inv-status-filter" class="inv-filter-select">
+                            <option value="active">Ativas</option>
+                            <option value="archived">Arquivadas</option>
+                            <option value="all">Todas</option>
+                        </select>
+                        <select id="inv-sort" class="inv-filter-select">
+                            <option value="-updated_at">Recente</option>
+                            <option value="title">Título (A-Z)</option>
+                            <option value="-created_at">Criação</option>
+                        </select>
+                    </div>
                     <ul class="list" id="investigations-list"></ul>
                 </div>
                 <div class="sidebar-section">
@@ -127,6 +140,8 @@
         <!-- ============================================ STATUSBAR -->
         <footer class="statusbar">
             <span id="status-msg">Pronto.</span>
+            <div class="spacer"></div>
+            <span id="save-status" title="Status do auto-save">—</span>
             <div class="spacer"></div>
             <span id="status-hint">Arraste entidades da paleta · Botão direito para ações</span>
         </footer>
