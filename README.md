@@ -113,7 +113,7 @@ source venv/bin/activate
 pytest
 ```
 
-Cobertura: 13 testes (entidades, transforms, API).
+Cobertura: 78+ testes (audit log, auth, RBAC, entidades, transforms, API).
 
 ---
 
@@ -121,19 +121,20 @@ Cobertura: 13 testes (entidades, transforms, API).
 
 ```text
 openm/
-├── api/                  # Endpoints REST
-├── core/                 # Entity, GraphManager, Transform
+├── api/                  # Endpoints REST (auth, admin, entities, audit-log...)
+├── core/                 # Entity, GraphManager, Transform, audit helpers
 ├── frontend/             # HTML, CSS, JS
 │   ├── static/
 │   │   ├── css/         # Dark theme estilo Maltego
 │   │   ├── js/          # Módulos JS (graph, inspector, palette, modals)
 │   │   └── vendor/      # Cytoscape + plugins (standalone)
 │   └── templates/
-├── models/              # SQLAlchemy (Investigation, ApiKey)
+├── models/              # SQLAlchemy (User, Investigation, ApiKey, AuditLog)
 ├── services/            # DNS e Threat Intel
 ├── transforms/          # ResolveIP, CheckFraudEmail
 ├── utils/               # Neo4j client singleton
 ├── tests/
+├── scripts/             # Migrations SQL
 ├── config.py
 ├── extensions.py
 └── app.py
@@ -145,19 +146,42 @@ openm/
 
 | Método | Endpoint | Descrição |
 |---|---|---|
+| POST | `/api/auth/register` | Registrar novo usuário |
+| POST | `/api/auth/login` | Login (retorna tokens) |
+| POST | `/api/auth/logout` | Logout (revoga refresh) |
+| POST | `/api/auth/refresh` | Renovar access token |
+| GET | `/api/auth/me` | Dados do usuário atual |
 | POST | `/api/entity` | Criar entidade |
+| PATCH | `/api/entity/<id>` | Atualizar propriedades |
+| DELETE | `/api/entity/<id>` | Remover entidade |
 | GET | `/api/transforms/<type>` | Listar transforms |
 | POST | `/api/run_transform` | Executar transform |
 | GET | `/api/subgraph/<id>?depth=2` | Obter subgrafo |
 | POST | `/api/edge` | Criar vínculo manual |
 | DELETE | `/api/edge/<id>` | Remover vínculo |
-| DELETE | `/api/entity/<id>` | Remover entidade |
-| PATCH | `/api/entity/<id>` | Atualizar propriedades |
 | GET/POST | `/api/investigations` | CRUD investigações |
 | GET/POST/DELETE | `/api/keys` | CRUD API keys |
+| GET | `/api/admin/users` | Listar usuários (admin) |
+| PATCH | `/api/admin/users/<id>/role` | Alterar papel (admin) |
+| PATCH | `/api/admin/users/<id>/active` | Ativar/desativar (admin) |
+| GET | `/api/audit-log` | Log de auditoria (admin) |
 | GET | `/health` | Healthcheck |
 
 ---
+
+## 📋 Audit log (issue #4)
+
+O OpenM registra automaticamente ações sensíveis em uma tabela `audit_log`:
+
+- Login/logout, criação/edição/remoção de entidades, execução de transforms, alterações de papel, etc.
+- Sanitização automática: senhas e tokens nunca são gravados no log.
+- Leitura restrita a admins via `GET /api/audit-log` com filtros (`user_id`, `action`, `since`, `until`, etc.).
+- Retenção configurável via CLI:
+
+```bash
+flask audit purge --days 90        # remove logs antigos
+flask audit purge --days 90 --dry-run  # apenas simula
+```
 
 ## 🔑 Configurando API Keys reais
 
@@ -189,6 +213,7 @@ Sem chave cadastrada, o `CheckFraudEmailTransform` usa simulação controlada.
 
 - [x] Autenticação JWT + refresh tokens (issue #1)
 - [x] RBAC: admin/analyst/viewer (issue #3)
+- [x] Audit log de ações sensíveis com retenção configurável (issue #4)
 - [ ] Mais transforms (Whois, GeoIP, Shodan, VirusTotal)
 - [ ] Compartilhamento de investigações entre usuários
 - [ ] Exportar grafo como PNG/SVG

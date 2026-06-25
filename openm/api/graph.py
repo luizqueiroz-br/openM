@@ -1,6 +1,7 @@
 from flask import Blueprint, jsonify, request
 from pydantic import BaseModel, ValidationError
 
+from openm.core.audit import log_action, ACTION_EDGE_CREATE, ACTION_EDGE_DELETE
 from openm.core.auth import require_auth, require_role
 from openm.utils.neo4j_client import get_graph_manager
 
@@ -54,6 +55,16 @@ def create_edge():
         rel_type=payload.rel_type,
         properties=payload.properties or {},
     )
+    log_action(
+        ACTION_EDGE_CREATE,
+        target_type="relationship",
+        target_id=f"{payload.from_id}->{payload.to_id}",
+        metadata={
+            "from_id": payload.from_id,
+            "to_id": payload.to_id,
+            "rel_type": payload.rel_type,
+        },
+    )
     return jsonify({
         "message": "Vínculo criado",
         "from_id": payload.from_id,
@@ -73,4 +84,9 @@ def delete_edge(relationship_id: str):
     """
     gm = get_graph_manager()
     gm.delete_relationship(relationship_id)
+    log_action(
+        ACTION_EDGE_DELETE,
+        target_type="relationship",
+        target_id=relationship_id,
+    )
     return jsonify({"message": "Vínculo removido", "id": relationship_id}), 200
