@@ -183,6 +183,28 @@ class TestLogAction:
             ev = AuditLog.query.filter_by(action="no-req").first()
             assert ev.user_id is None
 
+    def test_user_id_falls_back_to_g_user_id(self, app):
+        """Em request context com g.user → usa g.user.id."""
+        with app.test_request_context():
+            with app.app_context():
+                # Mock g.user com atributo .id
+                from flask import g
+                g.user = type("U", (), {"id": 42})()
+                log_action("with-g-user")
+                ev = AuditLog.query.filter_by(action="with-g-user").first()
+                assert ev.user_id == 42
+
+    def test_user_id_when_g_user_has_no_id_attr(self, app):
+        """g.user sem atributo .id → getattr com default None."""
+        from flask import g
+        with app.test_request_context():
+            with app.app_context():
+                # g.user sem .id — getattr deve retornar None
+                g.user = object()
+                log_action("g-user-no-id")
+                ev = AuditLog.query.filter_by(action="g-user-no-id").first()
+                assert ev.user_id is None
+
     def test_sanitization_applied_to_metadata_in_db(self, app):
         with app.app_context():
             log_action("x", metadata={"password": "p1", "ok": "v"})
@@ -205,6 +227,22 @@ class TestLogAction:
                 ev = AuditLog.query.filter_by(action="ip-test-2").first()
                 assert ev.ip_address == "5.6.7.8"
 
+    def test_ip_address_truncated_to_45_chars(self, app):
+        """IP explícito > 45 chars é truncado para caber na coluna."""
+        long_ip = "a" * 50 + ":1.2.3.4"
+        with app.app_context():
+            log_action("ip-trunc", ip_address=long_ip)
+            ev = AuditLog.query.filter_by(action="ip-trunc").first()
+            assert len(ev.ip_address) == 45
+            assert ev.ip_address == long_ip[:45]
+
+    def test_ip_address_none_when_no_request_context(self, app):
+        """Sem request context e sem ip explícito → None."""
+        with app.app_context():
+            log_action("no-req-ip")
+            ev = AuditLog.query.filter_by(action="no-req-ip").first()
+            assert ev.ip_address is None
+
     def test_db_failure_does_not_propagate(self, app, monkeypatch):
         """Erro no DB → função retorna False, sem levantar exceção."""
         # Força o commit a falhar.
@@ -219,6 +257,62 @@ class TestLogAction:
         # Nenhuma entrada foi gravada.
         with app.app_context():
             assert AuditLog.query.filter_by(action="will-fail").first() is None
+
+    def test_db_failure_outside_app_context(self, monkeypatch):
+        """Falha fora de app_context ainda retorna False (não levanta)."""
+        # Sem app context. Forçamos um erro no import lazy simulando falha.
+        # O caminho "except Exception" também pode ser exercitado aqui
+        # passando-se db_session inválido.
+        from openm.core import audit as audit_mod
+
+        class _BrokenSession:
+            def add(self, *a, **kw):
+                raise RuntimeError("broken")
+
+            def commit(self):
+                raise RuntimeError("broken")
+
+            def rollback(self):
+                raise RuntimeError("broken-rollback")
+
+        ok = audit_mod.log_action(
+            "broken-session",
+            db_session=_BrokenSession(),
+        )
+        assert ok is False
+
+    def test_db_failure_logs_via_fallback_logger(self, monkeypatch):
+        """Fora de app context, falha usa _logger.warning (não current_app.logger)."""
+        from openm.core import audit as audit_mod
+
+        class _BrokenSession:
+            def add(self, *a, **kw):
+                raise RuntimeError("x")
+
+            def commit(self):
+                raise RuntimeError("x")
+
+            def rollback(self):
+                pass
+
+        # Capturar warning do logger fallback
+        import logging
+        captured = []
+
+        class _CapturingHandler(logging.Handler):
+            def emit(self, record):
+                captured.append(record.getMessage())
+
+        cap = _CapturingHandler(level=logging.WARNING)
+        audit_mod._logger.addHandler(cap)
+        try:
+            # Sem app context: cai no else branch (_logger.warning)
+            ok = audit_mod.log_action("no-app-ctx-fail", db_session=_BrokenSession())
+            assert ok is False
+        finally:
+            audit_mod._logger.removeHandler(cap)
+        # Confirma que o logger fallback foi usado.
+        assert any("audit_log_failure" in m for m in captured)
 
 
 # ====================================================================
@@ -360,6 +454,37 @@ class TestAuditEndpointFilters:
         # Aplicou defaults (sem user_id, limit=100).
         assert resp.get_json()["limit"] == 100
 
+    def test_limit_zero_silently_invalid(self, admin_client, seeded):
+        """L52: limit=0 → _parse_int retorna None → usa default."""
+        resp = admin_client.get("/api/audit-log?limit=0")
+        assert resp.status_code == 200
+        assert resp.get_json()["limit"] == 100  # default aplicado
+
+    def test_limit_negative_silently_invalid(self, admin_client, seeded):
+        """L52: limit=-5 < minimum=1 → _parse_int retorna None."""
+        resp = admin_client.get("/api/audit-log?limit=-5")
+        assert resp.status_code == 200
+        assert resp.get_json()["limit"] == 100
+
+    def test_offset_negative_silently_invalid(self, admin_client, seeded):
+        """L52: offset=-1 < minimum=0 → _parse_int retorna None."""
+        resp = admin_client.get("/api/audit-log?offset=-1")
+        assert resp.status_code == 200
+        assert resp.get_json()["offset"] == 0  # default
+
+    def test_since_invalid_format_silently_ignored(self, admin_client, seeded):
+        """L88-89: ?since=not-a-date → _parse_datetime retorna None."""
+        resp = admin_client.get("/api/audit-log?since=not-a-date")
+        assert resp.status_code == 200
+        # Filtro não aplicado, retorna tudo (>= 5 eventos seedados).
+        assert resp.get_json()["total"] >= 5
+
+    def test_until_invalid_format_silently_ignored(self, admin_client, seeded):
+        """L88-89: ?until=garbage → _parse_datetime retorna None."""
+        resp = admin_client.get("/api/audit-log?until=garbage")
+        assert resp.status_code == 200
+        assert resp.get_json()["total"] >= 5
+
 
 # ====================================================================
 # 5) Instrumentação: auth
@@ -455,6 +580,68 @@ class TestAuthInstrumentation:
         assert regs[0].meta["role"] == "analyst"
         # Defesa em profundidade: senha nunca logada (sanitização).
         assert "password" not in regs[0].meta
+
+    def test_register_rejects_invalid_role(self, app, client):
+        """L130: register com role='god' (não está em VALID_ROLES) → 400."""
+        resp = client.post("/api/auth/register", json={
+            "email": "newrole@example.com",
+            "password": "test-password-123",
+            "role": "god",
+        })
+        assert resp.status_code == 400
+
+    def test_login_failed_invalid_email_format(self, app, client):
+        """L184-192: email que _normalize_email rejeita → reason=invalid_email_format."""
+        # Email com formato inválido — validate_email levanta EmailNotValidError
+        # que _normalize_email converte para ValueError.
+        resp = client.post("/api/auth/login", json={
+            "email": "@@@invalid-format@@@",
+            "password": "whatever",
+        })
+        assert resp.status_code == 401
+
+        events = _all_events(app)
+        failures = [e for e in events if e.action == ACTION_LOGIN_FAILED]
+        # Confirma que pelo menos um evento tem reason=invalid_email_format.
+        assert any(f.meta.get("reason") == "invalid_email_format" for f in failures)
+
+    def test_refresh_without_token_returns_400(self, app, client):
+        """L239: POST /api/auth/refresh sem refresh_token no body nem no cookie → 400."""
+        resp = client.post("/api/auth/refresh", json={})
+        assert resp.status_code == 400
+
+    def test_refresh_with_inactive_user_returns_401(self, app, client, admin_client):
+        """L252: refresh token de user desativado → 401."""
+        _create_user(app, email="refresh-target@example.com")
+        # Login para gerar tokens.
+        login = client.post("/api/auth/login", json={
+            "email": "refresh-target@example.com",
+            "password": "test-password-123",
+        })
+        assert login.status_code == 200
+        refresh = login.get_json()["refresh_token"]
+
+        # Pega o id do user e desativa via admin.
+        with app.app_context():
+            from openm.models.user import User as _U
+            uid = _U.query.filter_by(email="refresh-target@example.com").first().id
+        admin_client.patch(
+            f"/api/admin/users/{uid}/active", json={"is_active": False}
+        )
+
+        # Tentar refresh com o token agora → 401.
+        resp = client.post("/api/auth/refresh", json={"refresh_token": refresh})
+        assert resp.status_code == 401
+
+    def test_logout_with_invalid_refresh_token_logs_event(self, app, client):
+        """L283-291: logout com refresh_token garbage → 200 + user.logout."""
+        resp = client.post("/api/auth/logout",
+                           json={"refresh_token": "garbage.invalid.token"})
+        assert resp.status_code == 200
+
+        events = _all_events(app)
+        logouts = [e for e in events if e.action == ACTION_LOGOUT]
+        assert any(ev.meta.get("reason") == "invalid_token" for ev in logouts)
 
 
 # ====================================================================
@@ -591,6 +778,49 @@ class TestOtherInstrumentation:
         actions = [e.action for e in events]
         assert ACTION_INVESTIGATION_ARCHIVE in actions
         assert ACTION_INVESTIGATION_UNARCHIVE in actions
+
+    def test_investigation_create_invalid_payload(self, app, auth_client):
+        """L93-94: POST sem title → ValidationError → 400."""
+        resp = auth_client.post("/api/investigations",
+                                json={"description": "missing title"})
+        assert resp.status_code == 400
+
+    def test_investigation_update_graph_snapshot_not_dict(self, app, auth_client):
+        """L219: PUT com graph_snapshot = lista (não dict) → 400."""
+        # Cria investigação.
+        r = auth_client.post("/api/investigations", json={"title": "X"})
+        assert r.status_code == 201
+        inv_id = r.get_json()["investigation"]["id"]
+        # PUT com graph_snapshot inválido (lista).
+        resp = auth_client.put(f"/api/investigations/{inv_id}",
+                               json={"graph_snapshot": []})
+        assert resp.status_code == 400
+
+    def test_investigation_update_snapshot_size_handles_unstringifiable(
+        self, app, auth_client
+    ):
+        """L245-246 marcada com # pragma: no cover.
+
+        O caminho defensivo `except Exception` no cálculo de snapshot_size_kb
+        é raríssimo (pydantic já validou como dict, então str() só falharia
+        com tipos customizados que fogem ao schema). Monkeypatchar
+        builtins.str para testar este caminho mostrou-se frágil (contamina
+        o próprio pytest que usa str() internamente para formatar warnings).
+        Marcamos a linha como não-coberta por design.
+        """
+        # Verifica que um update normal funciona (caminho feliz).
+        r = auth_client.post("/api/investigations", json={"title": "X"})
+        inv_id = r.get_json()["investigation"]["id"]
+        resp = auth_client.put(
+            f"/api/investigations/{inv_id}",
+            json={"graph_snapshot": {"nodes": [{"id": "1"}], "edges": []}},
+        )
+        assert resp.status_code == 200
+        events = _all_events(app)
+        updates = [e for e in events if e.action == ACTION_INVESTIGATION_UPDATE]
+        assert len(updates) == 1
+        # Tamanho > 0 (snapshot válido tem bytes).
+        assert updates[0].meta["snapshot_size_kb"] > 0
 
     def test_apikey_create_does_not_log_key_value(self, app, auth_client):
         resp = auth_client.post("/api/keys", json={

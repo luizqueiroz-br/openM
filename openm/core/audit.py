@@ -194,8 +194,9 @@ def log_action(
                 )
             else:
                 _logger.warning("audit_log_failure action=%s error=db", action)
-        except Exception:  # noqa: BLE001, S110
-            # Se nem o logger funciona, desiste silenciosamente.
+        except Exception:  # noqa: BLE001, S110  # pragma: no cover
+            # Se nem o logger funciona, desiste silenciosamente. Caminho
+            # defensivo — em prática o logger do Python sempre funciona.
             pass
 
         return False

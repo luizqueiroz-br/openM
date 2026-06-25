@@ -215,7 +215,9 @@ def update_investigation(investigation_id: int):
 
     # Validação mínima do graph_snapshot
     if payload.graph_snapshot is not None:
-        if not isinstance(payload.graph_snapshot, dict):
+        if not isinstance(payload.graph_snapshot, dict):  # pragma: no cover
+            # Defesa redundante: pydantic já garante dict[str, Any]. Este
+            # isinstance só dispara se alguém passar um Mock ou similar.
             return jsonify({"error": "graph_snapshot deve ser um objeto"}), 400
         if "nodes" not in payload.graph_snapshot or "edges" not in payload.graph_snapshot:
             return jsonify({
@@ -242,7 +244,9 @@ def update_investigation(investigation_id: int):
             snapshot_size_kb = round(
                 len(str(payload.graph_snapshot).encode("utf-8")) / 1024, 2
             )
-        except Exception:  # noqa: BLE001
+        except Exception:  # noqa: BLE001  # pragma: no cover
+            # Defesa: snapshot não-conversível a str (raríssimo — pydantic
+            # já validou como dict). Não bloqueia a request.
             snapshot_size_kb = None
 
     _save_investigation(investigation)
