@@ -39,6 +39,8 @@ from openm.core.audit import (
     ACTION_APIKEY_CREATE,
     ACTION_APIKEY_UPDATE,
     ACTION_APIKEY_DELETE,
+    ACTION_EDGE_CREATE,
+    ACTION_EDGE_DELETE,
 )
 from openm.core.auth import hash_password
 from openm.extensions import db
@@ -857,6 +859,32 @@ class TestOtherInstrumentation:
         deletes = [e for e in events if e.action == ACTION_APIKEY_DELETE]
         assert len(deletes) == 1
         assert deletes[0].meta["service_name"] == "x"
+
+    def test_edge_create_logs_event(self, app, auth_client):
+        """POST /api/edge deve registrar ACTION_EDGE_CREATE."""
+        resp = auth_client.post("/api/edge", json={
+            "from_id": "ok1",
+            "to_id": "ok2",
+            "rel_type": "KNOWS",
+        })
+        assert resp.status_code == 201
+
+        events = _all_events(app)
+        evs = [e for e in events if e.action == ACTION_EDGE_CREATE]
+        assert len(evs) == 1
+        assert evs[0].meta["from_id"] == "ok1"
+        assert evs[0].meta["to_id"] == "ok2"
+        assert evs[0].meta["rel_type"] == "KNOWS"
+
+    def test_edge_delete_logs_event(self, app, auth_client):
+        """DELETE /api/edge/<id> deve registrar ACTION_EDGE_DELETE."""
+        resp = auth_client.delete("/api/edge/rel-123")
+        assert resp.status_code == 200
+
+        events = _all_events(app)
+        evs = [e for e in events if e.action == ACTION_EDGE_DELETE]
+        assert len(evs) == 1
+        assert evs[0].target_id == "rel-123"
 
 
 # ====================================================================
