@@ -1,5 +1,6 @@
 import logging
 import os
+import socket
 from typing import Any, Dict, Optional
 
 import requests
@@ -47,8 +48,6 @@ class ShodanService:
         key = cls.get_key()
         if not key:
             # Fallback: tenta resolver via DNS local
-            import socket
-
             try:
                 return socket.gethostbyname(domain)
             except OSError:
@@ -65,8 +64,6 @@ class ShodanService:
         except requests.RequestException as exc:
             logger.warning("Shodan DNS resolve falhou para %s: %s", domain, exc)
             # Fallback local
-            import socket
-
             try:
                 return socket.gethostbyname(domain)
             except OSError:
