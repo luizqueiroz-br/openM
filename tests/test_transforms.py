@@ -1,3 +1,4 @@
+import os
 from unittest.mock import patch
 
 from openm.core.entity import Domain, Email, IPAddress
@@ -780,3 +781,434 @@ def test_geoip_transform_registered():
     transforms = TransformRegistry.list_for_type("IPAddress")
     geoip_names = [t["name"] for t in transforms]
     assert "geoip_lookup" in geoip_names
+
+
+# ====================================================================
+# GeoIPService — _get_reader coverage
+# ====================================================================
+
+
+def test_geoip_service_get_reader_no_maxminddb(monkeypatch):
+    """Test _get_reader when maxminddb is not installed."""
+    import openm.services.geoip_service as gs
+
+    # Reset cached state
+    gs.GeoIPService._reader = None
+    gs.GeoIPService._reader_loaded = False
+
+    monkeypatch.setattr(gs, "_HAS_MAXMIND", False)
+    reader = gs.GeoIPService._get_reader()
+    assert reader is None
+
+
+def test_geoip_service_get_reader_db_not_found(monkeypatch, tmp_path):
+    """Test _get_reader when GeoLite2 db file doesn't exist."""
+    import openm.services.geoip_service as gs
+
+    # Reset cached state
+    gs.GeoIPService._reader = None
+    gs.GeoIPService._reader_loaded = False
+
+    monkeypatch.setattr(gs, "_HAS_MAXMIND", True)
+    monkeypatch.setattr(gs, "GEOIP_DB_PATH", str(tmp_path / "nonexistent.mmdb"))
+    # Also ensure alt paths don't exist
+    monkeypatch.setattr(os.path, "isfile", lambda p: False)
+
+    reader = gs.GeoIPService._get_reader()
+    assert reader is None
+
+
+def test_geoip_service_get_reader_alt_path_found(monkeypatch, tmp_path):
+    """Test _get_reader when db is found at an alternative path."""
+    import openm.services.geoip_service as gs
+
+    # Reset cached state
+    gs.GeoIPService._reader = None
+    gs.GeoIPService._reader_loaded = False
+
+    monkeypatch.setattr(gs, "_HAS_MAXMIND", True)
+    monkeypatch.setattr(gs, "GEOIP_DB_PATH", str(tmp_path / "nonexistent.mmdb"))
+
+    # Mock isfile to return True for the first alt path
+    alt_path = "/usr/local/share/GeoIP/GeoLite2-City.mmdb"
+    original_isfile = os.path.isfile
+
+    def mock_isfile(path):
+        if path == alt_path:
+            return True
+        return False
+
+    monkeypatch.setattr(os.path, "isfile", mock_isfile)
+
+    # Mock maxminddb.open_database
+    fake_reader = object()
+    monkeypatch.setattr(gs.maxminddb, "open_database", lambda p: fake_reader)
+
+    reader = gs.GeoIPService._get_reader()
+    assert reader is fake_reader
+
+
+def test_geoip_service_get_reader_open_error(monkeypatch, tmp_path):
+    """Test _get_reader when maxminddb.open_database raises an exception."""
+    import openm.services.geoip_service as gs
+
+    # Reset cached state
+    gs.GeoIPService._reader = None
+    gs.GeoIPService._reader_loaded = False
+
+    db_file = tmp_path / "GeoLite2-City.mmdb"
+    db_file.write_text("corrupt data")
+
+    monkeypatch.setattr(gs, "_HAS_MAXMIND", True)
+    monkeypatch.setattr(gs, "GEOIP_DB_PATH", str(db_file))
+
+    # Mock open_database to raise
+    monkeypatch.setattr(gs.maxminddb, "open_database", lambda p: (_ for _ in ()).throw(ValueError("corrupt")))
+
+    reader = gs.GeoIPService._get_reader()
+    assert reader is None
+
+
+# ====================================================================
+# GeoIPService — lookup() coverage
+# ====================================================================
+
+
+def test_geoip_service_lookup_no_reader(monkeypatch):
+    """Test lookup() when _get_reader returns None."""
+    import openm.services.geoip_service as gs
+
+    gs.GeoIPService._reader = None
+    gs.GeoIPService._reader_loaded = False
+    monkeypatch.setattr(gs, "_HAS_MAXMIND", False)
+
+    result = gs.GeoIPService.lookup("8.8.8.8")
+    assert result is None
+
+
+def test_geoip_service_lookup_ip_not_found(monkeypatch):
+    """Test lookup() when the IP is not in the database."""
+    import openm.services.geoip_service as gs
+
+    gs.GeoIPService._reader = None
+    gs.GeoIPService._reader_loaded = False
+
+    fake_reader = type("FakeReader", (), {"get": lambda self, ip: None})()
+    monkeypatch.setattr(gs.GeoIPService, "_get_reader", lambda: fake_reader)
+
+    result = gs.GeoIPService.lookup("0.0.0.0")
+    assert result is None
+
+
+def test_geoip_service_lookup_success(monkeypatch):
+    """Test lookup() with a successful MaxMind response."""
+    import openm.services.geoip_service as gs
+
+    gs.GeoIPService._reader = None
+    gs.GeoIPService._reader_loaded = False
+
+    fake_response = {
+        "country": {"iso_code": "US", "names": {"en": "United States"}},
+        "city": {"names": {"en": "Mountain View"}},
+        "location": {"latitude": 37.422, "longitude": -122.084, "accuracy_radius": 10, "time_zone": "America/Los_Angeles"},
+        "postal": {"code": "94043"},
+        "continent": {"names": {"en": "North America"}},
+        "subdivisions": [{"names": {"en": "California"}}],
+    }
+    fake_reader = type("FakeReader", (), {"get": lambda self, ip: fake_response})()
+    monkeypatch.setattr(gs.GeoIPService, "_get_reader", lambda: fake_reader)
+
+    result = gs.GeoIPService.lookup("8.8.8.8")
+    assert result is not None
+    assert result["ip"] == "8.8.8.8"
+    assert result["country"] == "US"
+    assert result["country_name"] == "United States"
+    assert result["city"] == "Mountain View"
+    assert result["latitude"] == 37.422
+    assert result["longitude"] == -122.084
+    assert result["postal_code"] == "94043"
+    assert result["timezone"] == "America/Los_Angeles"
+    assert result["continent"] == "North America"
+    assert result["subdivision"] == "California"
+    assert result["source"] == "maxmind_geolite2"
+
+
+def test_geoip_service_lookup_exception(monkeypatch):
+    """Test lookup() when reader.get() raises an exception."""
+    import openm.services.geoip_service as gs
+
+    gs.GeoIPService._reader = None
+    gs.GeoIPService._reader_loaded = False
+
+    fake_reader = type("FakeReader", (), {"get": lambda self, ip: (_ for _ in ()).throw(RuntimeError("db error"))})()
+    monkeypatch.setattr(gs.GeoIPService, "_get_reader", lambda: fake_reader)
+
+    result = gs.GeoIPService.lookup("8.8.8.8")
+    assert result is None
+
+
+def test_geoip_service_investigate_ip_from_real_lookup(monkeypatch):
+    """Test investigate_ip when lookup() returns real data (covers the `if result:` branch)."""
+    import openm.services.geoip_service as gs
+
+    gs.GeoIPService._reader = None
+    gs.GeoIPService._reader_loaded = False
+
+    fake_response = {
+        "country": {"iso_code": "JP", "names": {"en": "Japan"}},
+        "city": {"names": {"en": "Tokyo"}},
+        "location": {"latitude": 35.6762, "longitude": 139.6503, "accuracy_radius": 20, "time_zone": "Asia/Tokyo"},
+        "postal": {"code": "100-0001"},
+        "continent": {"names": {"en": "Asia"}},
+        "subdivisions": [{"names": {"en": "Tokyo"}}],
+    }
+    fake_reader = type("FakeReader", (), {"get": lambda self, ip: fake_response})()
+    monkeypatch.setattr(gs.GeoIPService, "_get_reader", lambda: fake_reader)
+
+    result = gs.GeoIPService.investigate_ip("60.0.0.1")
+    assert result["source"] == "maxmind_geolite2"
+    assert result["country"] == "JP"
+    assert result["city"] == "Tokyo"
+
+
+def test_geoip_service_investigate_ip_ipv6():
+    """Test investigate_ip with an IPv6 address (covers non-IPv4 branch)."""
+    from openm.services.geoip_service import GeoIPService
+
+    result = GeoIPService.investigate_ip("2001:db8::1")
+    assert result["ip"] == "2001:db8::1"
+    assert result["source"] == "geoip_simulated"
+
+
+def test_geoip_service_investigate_ip_malformed():
+    """Test investigate_ip with a malformed IP (covers ValueError branch)."""
+    from openm.services.geoip_service import GeoIPService
+
+    result = GeoIPService.investigate_ip("not.an.ip.address")
+    assert result["ip"] == "not.an.ip.address"
+    assert result["source"] == "geoip_simulated"
+
+
+# ====================================================================
+# WhoisService — additional coverage
+# ====================================================================
+
+
+def test_whois_service_extract_tld_two_part():
+    """Test TLD extraction for two-part TLDs like co.uk, com.br."""
+    from openm.services.whois_service import _extract_tld
+
+    assert _extract_tld("example.co.uk") == "co.uk"
+    assert _extract_tld("example.com.br") == "com.br"
+    assert _extract_tld("example.org.uk") == "org.uk"
+    assert _extract_tld("example.net.au") == "net.au"
+    assert _extract_tld("example.gov.br") == "gov.br"
+    assert _extract_tld("example.ac.uk") == "ac.uk"
+    assert _extract_tld("example.sch.uk") == "sch.uk"
+    assert _extract_tld("example.nom.br") == "nom.br"
+
+
+def test_whois_service_rate_limit(monkeypatch):
+    """Test _rate_limit enforces minimum interval between requests."""
+    import time
+    from openm.services.whois_service import _rate_limit, _last_request, _MIN_INTERVAL
+
+    # Clear state
+    _last_request.clear()
+
+    # Mock time.time to control timing
+    fake_time = [0.0]
+
+    def mock_time():
+        return fake_time[0]
+
+    monkeypatch.setattr(time, "time", mock_time)
+
+    # First call at t=0
+    _rate_limit("whois.test.com")
+    # Should not have slept
+
+    # Second call at t=0.5 (< _MIN_INTERVAL)
+    fake_time[0] = 0.5
+    # Mock time.sleep to track calls
+    sleep_calls = []
+
+    def mock_sleep(s):
+        sleep_calls.append(s)
+        fake_time[0] += s
+
+    monkeypatch.setattr(time, "sleep", mock_sleep)
+
+    _rate_limit("whois.test.com")
+    assert len(sleep_calls) == 1
+    assert sleep_calls[0] >= _MIN_INTERVAL - 0.5
+
+
+def test_whois_service_query_whois_raw_success(monkeypatch):
+    """Test _query_whois_raw with a successful socket connection."""
+    import socket
+    from openm.services.whois_service import _query_whois_raw, _last_request
+
+    # Clear rate limit state
+    _last_request.clear()
+
+    # Mock socket.create_connection
+    class FakeSocket:
+        def __init__(self, *args, **kwargs):
+            self.sent_data = b""
+            self._recv_count = 0
+
+        def sendall(self, data):
+            self.sent_data = data
+
+        def recv(self, bufsize):
+            self._recv_count += 1
+            if self._recv_count == 1:
+                return b"Fake WHOIS response data\n"
+            return b""
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *args):
+            pass
+
+    monkeypatch.setattr(socket, "create_connection", lambda addr, timeout: FakeSocket())
+
+    result = _query_whois_raw("example.com", "whois.test.com")
+    assert result == "Fake WHOIS response data\n"
+
+
+def test_whois_service_query_whois_raw_timeout(monkeypatch):
+    """Test _query_whois_raw when socket times out."""
+    import socket
+    from openm.services.whois_service import _query_whois_raw, _last_request
+
+    _last_request.clear()
+
+    class FakeTimeoutSocket:
+        def __init__(self, *args, **kwargs):
+            pass
+
+        def sendall(self, data):
+            pass
+
+        def recv(self, bufsize):
+            raise socket.timeout("timed out")
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *args):
+            pass
+
+    monkeypatch.setattr(socket, "create_connection", lambda addr, timeout: FakeTimeoutSocket())
+
+    result = _query_whois_raw("example.com", "whois.test.com")
+    assert result == ""
+
+
+def test_whois_service_query_whois_raw_connection_error(monkeypatch):
+    """Test _query_whois_raw when connection is refused."""
+    import socket
+    from openm.services.whois_service import _query_whois_raw, _last_request
+
+    _last_request.clear()
+
+    monkeypatch.setattr(
+        socket,
+        "create_connection",
+        lambda addr, timeout: (_ for _ in ()).throw(ConnectionRefusedError("refused")),
+    )
+
+    result = _query_whois_raw("example.com", "whois.test.com")
+    assert result is None
+
+
+def test_whois_service_query_whois_raw_gaierror(monkeypatch):
+    """Test _query_whois_raw when DNS resolution fails."""
+    import socket
+    from openm.services.whois_service import _query_whois_raw, _last_request
+
+    _last_request.clear()
+
+    monkeypatch.setattr(
+        socket,
+        "create_connection",
+        lambda addr, timeout: (_ for _ in ()).throw(socket.gaierror("no address")),
+    )
+
+    result = _query_whois_raw("example.com", "whois.invalid")
+    assert result is None
+
+
+def test_whois_service_extract_tld_single_part():
+    """Test _extract_tld with a single-part domain (no dot)."""
+    from openm.services.whois_service import _extract_tld
+
+    assert _extract_tld("localhost") == ""
+    assert _extract_tld("") == ""
+
+
+def test_whois_service_parse_response_org_fallback():
+    """Test _parse_whois_response when only generic Organization field is present."""
+    from openm.services.whois_service import _parse_whois_response
+
+    raw = """
+    Domain Name: org-only.com
+    Organization: Generic Org Inc.
+    Registrar: Some Registrar
+    """
+
+    result = _parse_whois_response(raw, "org-only.com")
+    assert result["registrant_org"] == "Generic Org Inc."
+    assert result["registrar"] == "Some Registrar"
+
+
+def test_whois_service_parse_response_no_contacts():
+    """Test _parse_whois_response with no contact information."""
+    from openm.services.whois_service import _parse_whois_response
+
+    raw = """
+    Domain Name: nocontacts.com
+    Registrar: Bare Registrar
+    Creation Date: 2022-01-01T00:00:00Z
+    """
+
+    result = _parse_whois_response(raw, "nocontacts.com")
+    assert result["domain"] == "nocontacts.com"
+    assert result["registrar"] == "Bare Registrar"
+    assert result["creation_date"] == "2022-01-01T00:00:00Z"
+    assert result["registrant_name"] is None
+    assert result["registrant_email"] is None
+    assert result["admin_email"] is None
+    assert result["tech_email"] is None
+
+
+def test_whois_service_investigate_domain_empty_response(monkeypatch):
+    """Test investigate_domain when WHOIS returns empty string."""
+    from openm.services.whois_service import WhoisService
+
+    with patch(
+        "openm.services.whois_service._query_whois_raw",
+        return_value="",
+    ):
+        result = WhoisService.investigate_domain("empty-response.com")
+
+    # Should fall back to simulated data
+    assert result["source"] == "whois_simulated"
+    assert result["registrar"] == "Example Registrar, Inc."
+
+
+def test_whois_service_investigate_domain_no_meaningful_data(monkeypatch):
+    """Test investigate_domain when WHOIS returns data with no meaningful fields."""
+    from openm.services.whois_service import WhoisService
+
+    with patch(
+        "openm.services.whois_service._query_whois_raw",
+        return_value="Domain Name: bare.com\n",
+    ):
+        result = WhoisService.investigate_domain("bare.com")
+
+    # Should fall back to simulated data (no registrar, dates, nameservers, or contacts)
+    assert result["source"] == "whois_simulated"
