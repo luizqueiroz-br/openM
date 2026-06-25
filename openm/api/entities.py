@@ -1,7 +1,13 @@
-from flask import Blueprint, jsonify, request
+from flask import Blueprint, g, jsonify, request
 from pydantic import BaseModel, ConfigDict, ValidationError
 
 from openm.core.auth import require_auth, require_role
+from openm.core.audit import (
+    log_action,
+    ACTION_ENTITY_CREATE,
+    ACTION_ENTITY_UPDATE,
+    ACTION_ENTITY_DELETE,
+)
 from openm.core.entity import ENTITY_CLASSES
 from openm.utils.neo4j_client import get_graph_manager
 
@@ -54,6 +60,20 @@ def create_entity():
     gm = get_graph_manager()
     gm.merge_entity(entity)
 
+    # Auditoria: criação de entidade. Não logamos as properties inteiras
+    # (podem conter dados sensíveis) — só keys como metadado.
+    log_action(
+        action=ACTION_ENTITY_CREATE,
+        target_type="entity",
+        target_id=entity.id,
+        user_id=g.user.id,
+        metadata={
+            "entity_type": payload.type,
+            "value": payload.value,
+            "property_keys": sorted(properties.keys()),
+        },
+    )
+
     return jsonify({"entity": entity.to_dict()}), 201
 
 
@@ -77,6 +97,17 @@ def update_entity(entity_id: str):
         return jsonify({"error": "Entidade não encontrada"}), 404
 
     gm.update_entity_properties(entity_id, payload.properties)
+    # Auditoria: atualização de propriedades. Não logamos valores (podem
+    # conter dados sensíveis), só as chaves alteradas.
+    log_action(
+        action=ACTION_ENTITY_UPDATE,
+        target_type="entity",
+        target_id=entity_id,
+        user_id=g.user.id,
+        metadata={
+            "property_keys": sorted(payload.properties.keys()),
+        },
+    )
     return jsonify({"message": "Entidade atualizada", "id": entity_id}), 200
 
 
@@ -91,4 +122,11 @@ def delete_entity(entity_id: str):
     """
     gm = get_graph_manager()
     gm.delete_entity(entity_id)
+    # Auditoria: deleção de entidade (incluindo relacionamentos adjacentes).
+    log_action(
+        action=ACTION_ENTITY_DELETE,
+        target_type="entity",
+        target_id=entity_id,
+        user_id=g.user.id,
+    )
     return jsonify({"message": "Entidade removida", "id": entity_id}), 200

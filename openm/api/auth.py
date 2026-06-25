@@ -30,6 +30,13 @@ from openm.core.auth import (
     revoke_refresh_token,
     verify_password,
 )
+from openm.core.audit import (
+    log_action,
+    ACTION_LOGIN_FAILED,
+    ACTION_LOGIN_SUCCESS,
+    ACTION_LOGOUT,
+    ACTION_REGISTER,
+)
 from openm.extensions import db, limiter
 from openm.models.user import User, VALID_ROLES
 
@@ -134,6 +141,15 @@ def register():
     )
     db.session.add(user)
     db.session.commit()
+    # Auditoria: registrar criação de usuário. metadata SEM password (sanitização
+    # já remove, mas explicitamente não passamos o payload original).
+    log_action(
+        action=ACTION_REGISTER,
+        target_type="user",
+        target_id=str(user.id),
+        metadata={"email": email, "role": payload.role},
+        user_id=user.id,
+    )
     return jsonify({"user": user.to_dict()}), 201
 
 
@@ -150,11 +166,29 @@ def login():
     try:
         payload = LoginPayload(**data)
     except ValidationError as exc:
+        # Body malformado — também auditado como falha (sem email válido,
+        # então metadata.email_attempted fica como o que o usuário mandou,
+        # ou None se não houver campo).
+        log_action(
+            action=ACTION_LOGIN_FAILED,
+            target_type="user",
+            metadata={
+                "reason": "invalid_payload",
+                "email_attempted": (data.get("email") if isinstance(data, dict) else None),
+            },
+        )
         return jsonify({"error": exc.errors()}), 400
 
     try:
         email = _normalize_email(payload.email)
     except ValueError:
+        # Email inválido — não conseguimos nem normalizar, então não há
+        # alvo definido. Audit genérico.
+        log_action(
+            action=ACTION_LOGIN_FAILED,
+            target_type="user",
+            metadata={"reason": "invalid_email_format"},
+        )
         return jsonify({"error": "invalid credentials"}), 401
 
     user = User.query.filter_by(email=email).first()
@@ -162,11 +196,32 @@ def login():
     if user is None or not user.is_active or not verify_password(
         payload.password, user.password_hash
     ):
+        # Não distinguimos os motivos no metadata (anti-enumeração).
+        # Registramos apenas o email tentado (não revela se existe) e
+        # o IP. target_id fica None quando o usuário não existe.
+        log_action(
+            action=ACTION_LOGIN_FAILED,
+            target_type="user",
+            target_id=str(user.id) if user is not None else None,
+            user_id=user.id if user is not None else None,
+            metadata={
+                "reason": "invalid_credentials",
+                "email_attempted": email,
+            },
+        )
         return jsonify({"error": "invalid credentials"}), 401
 
     token_pair = _issue_token_pair(user)
     response = jsonify(token_pair)
     _attach_auth_cookies(response, token_pair)
+    # Auditoria: login bem-sucedido. Não logamos tokens nem IP sensível
+    # além do que o helper já captura.
+    log_action(
+        action=ACTION_LOGIN_SUCCESS,
+        target_type="user",
+        target_id=str(user.id),
+        user_id=user.id,
+    )
     return response, 200
 
 
@@ -221,12 +276,18 @@ def logout():
     refresh_token = _get_refresh_token_from_request()
     response = jsonify({"status": "logged out"})
 
+    logged_out_user_id: int | None = None
     if refresh_token:
         try:
             claims = decode_token(refresh_token, expected_type="refresh")
         except TokenError:
             # Idempotente: logout de token já inválido é sucesso silencioso.
             _clear_auth_cookies(response)
+            log_action(
+                action=ACTION_LOGOUT,
+                target_type="user",
+                metadata={"reason": "invalid_token"},
+            )
             return response, 200
 
         revoke_refresh_token(
@@ -234,8 +295,15 @@ def logout():
             user_id=int(claims["sub"]),
             expires_at=datetime.fromtimestamp(claims["exp"], tz=timezone.utc),
         )
+        logged_out_user_id = int(claims["sub"])
 
     _clear_auth_cookies(response)
+    # Auditoria: logout bem-sucedido (com user_id quando temos o token válido).
+    log_action(
+        action=ACTION_LOGOUT,
+        target_type="user",
+        user_id=logged_out_user_id,
+    )
     return response, 200
 
 

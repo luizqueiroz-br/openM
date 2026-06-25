@@ -1,6 +1,7 @@
-from flask import Blueprint, jsonify, request
+from flask import Blueprint, g, jsonify, request
 
 from openm.core.auth import require_auth, require_role
+from openm.core.audit import log_action, ACTION_TRANSFORM_RUN
 from openm.core.entity import ENTITY_CLASSES, Entity  # noqa: F401  (Entity usado em runtime)
 from openm.core.transform import TransformRegistry
 from openm.utils.neo4j_client import get_graph_manager
@@ -66,8 +67,10 @@ def run_transform():
     gm = get_graph_manager()
     gm.merge_entity(entity)
 
+    new_entities_count = 0
     for new_entity in result.entities:
         gm.merge_entity(new_entity)
+        new_entities_count += 1
 
     rels = []
     for rel in result.relationships:
@@ -78,6 +81,21 @@ def run_transform():
             properties=rel.get("properties", {}),
         )
         rels.append(rel)
+
+    # Auditoria: execução de transform. Metadado leve (contagens) — sem
+    # expor valores das entidades resultantes (podem ser PII / IOC sensível).
+    log_action(
+        action=ACTION_TRANSFORM_RUN,
+        target_type="entity",
+        target_id=entity_id or entity.id,
+        user_id=g.user.id,
+        metadata={
+            "transform_name": transform_name,
+            "entity_type": entity_type,
+            "new_entities_count": new_entities_count,
+            "new_relationships_count": len(rels),
+        },
+    )
 
     return jsonify(
         {

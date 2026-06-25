@@ -1,7 +1,13 @@
-from flask import Blueprint, jsonify, request
+from flask import Blueprint, g, jsonify, request
 from pydantic import BaseModel, Field, ValidationError
 
 from openm.core.auth import require_auth, require_role
+from openm.core.audit import (
+    log_action,
+    ACTION_APIKEY_CREATE,
+    ACTION_APIKEY_UPDATE,
+    ACTION_APIKEY_DELETE,
+)
 from openm.extensions import db
 from openm.models.api_key import ApiKey
 
@@ -52,6 +58,18 @@ def create_or_update_key():
         existing.is_active = payload.is_active
         existing.rate_limit_per_day = payload.rate_limit_per_day
         db.session.commit()
+        # Auditoria: atualização de chave (defesa em profundidade — mesmo
+        # que alguém passe key_value no metadata, a sanitização remove).
+        log_action(
+            action=ACTION_APIKEY_UPDATE,
+            target_type="apikey",
+            target_id=str(existing.id),
+            user_id=g.user.id,
+            metadata={
+                "service_name": existing.service_name,
+                "key_type": existing.key_type,
+            },
+        )
         return jsonify({"key": existing.to_dict(secure=False)}), 200
 
     key = ApiKey(
@@ -63,6 +81,16 @@ def create_or_update_key():
     )
     db.session.add(key)
     db.session.commit()
+    log_action(
+        action=ACTION_APIKEY_CREATE,
+        target_type="apikey",
+        target_id=str(key.id),
+        user_id=g.user.id,
+        metadata={
+            "service_name": key.service_name,
+            "key_type": key.key_type,
+        },
+    )
     return jsonify({"key": key.to_dict(secure=False)}), 201
 
 
@@ -76,6 +104,16 @@ def delete_key(key_id: int):
     Remove uma chave cadastrada.
     """
     key = ApiKey.query.get_or_404(key_id)
+    # Captura ANTES do delete — depois do delete o objeto é detached.
+    service_name = key.service_name
     db.session.delete(key)
     db.session.commit()
+    # Auditoria: deleção de chave.
+    log_action(
+        action=ACTION_APIKEY_DELETE,
+        target_type="apikey",
+        target_id=str(key_id),
+        user_id=g.user.id,
+        metadata={"service_name": service_name},
+    )
     return jsonify({"message": "Chave removida com sucesso"}), 200

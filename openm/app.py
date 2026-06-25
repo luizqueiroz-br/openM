@@ -13,6 +13,7 @@ from openm.api import (
     keys_bp,
     transforms_bp,
     auth_bp,
+    audit_bp,
 )
 from openm.frontend.routes import frontend_bp
 
@@ -52,13 +53,15 @@ def create_app(config_class=Config) -> Flask:
     app.register_blueprint(keys_bp)
     app.register_blueprint(auth_bp)
     app.register_blueprint(admin_bp)
+    app.register_blueprint(audit_bp)
 
     # Páginas HTML (login/registro/logout)
     app.register_blueprint(frontend_bp)
 
-    # CLI customizado (ex.: flask admin create-admin)
-    from openm.cli import admin_cli
+    # CLI customizado (ex.: flask admin create-admin, flask audit purge)
+    from openm.cli import admin_cli, audit_cli
     app.cli.add_command(admin_cli)
+    app.cli.add_command(audit_cli)
 
     @app.route("/")
     def index():

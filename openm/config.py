@@ -65,3 +65,9 @@ class Config:
 
     # Domínio opcional dos cookies (None = só o host atual).
     JWT_COOKIE_DOMAIN: str | None = os.environ.get("JWT_COOKIE_DOMAIN") or None
+
+    # === Audit log (issue #4) ===
+    # Retenção em dias. Logs mais antigos que esse valor são removidos pelo
+    # comando CLI ``flask audit purge --days N`` (que usa esse valor como
+    # default). 0 desabilita a sugestão de retenção — o purge nunca é auto.
+    AUDIT_LOG_RETENTION_DAYS: int = int(os.environ.get("AUDIT_LOG_RETENTION_DAYS", "90"))
