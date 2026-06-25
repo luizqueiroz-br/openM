@@ -26,6 +26,7 @@ from openm import models  # noqa: E402, F401
 from openm.transforms import (  # noqa: E402, F401
     CheckFraudEmailTransform,
     ResolveIPTransform,
+    ShodanTransform,
 )
 
 
