@@ -1770,3 +1770,363 @@ class TestTransformRegistryServices:
             assert "service_name" in s
             assert "display_name" in s
             assert "transform_name" in s
+
+
+# ====================================================================
+# Hunter.io transforms (issue #7)
+# ====================================================================
+
+class TestHunterDomainTransform:
+    """HunterDomainTransform: Domain → Person + Email entities."""
+
+    def test_registered_with_service_name(self):
+        from openm.core.transform import TransformRegistry
+        services = TransformRegistry.list_services()
+        names = {s["service_name"] for s in services}
+        assert "hunter" in names
+        # domain-search e email-verifier compartilham service_name,
+        # mas só o primeiro aparece (deduplicado) — ambos transforms
+        # individuais continuam registrados pelo nome do transform.
+        from openm.core.transform import TransformRegistry
+        assert TransformRegistry.get("hunter_domain_search") is not None
+        assert TransformRegistry.get("hunter_email_verifier") is not None
+
+    def test_hunter_domain_with_people(self, monkeypatch):
+        from openm.transforms.hunter_domain import HunterDomainTransform
+
+        fake_data = {
+            "domain": "acme.com",
+            "available": True,
+            "organization": "Acme",
+            "pattern": "{first}",
+            "accept_all": False,
+            "linked_domains": [],
+            "people": [
+                {
+                    "first_name": "Jane", "last_name": "Doe",
+                    "position": "CEO", "seniority": "executive",
+                    "department": "executive", "confidence": 95,
+                    "email": "jane@acme.com", "email_type": "personal",
+                    "linkedin": None, "twitter": None,
+                    "sources": [{"domain": "github.com", "uri": "..."}],
+                    "verification": {"date": "2024-01-01", "status": "valid"},
+                },
+                {
+                    "first_name": "John", "last_name": "Smith",
+                    "position": "CTO", "seniority": "executive",
+                    "department": "it", "confidence": 88,
+                    "email": "john@acme.com", "email_type": "personal",
+                    "linkedin": None, "twitter": None,
+                    "sources": [],
+                    "verification": None,
+                },
+            ],
+            "quota_exceeded": False, "gdpr_blocked": False,
+            "cache_hit": False,
+        }
+        monkeypatch.setattr(
+            "openm.services.hunter_service.HunterService.investigate_domain",
+            lambda d: fake_data,
+        )
+        entity = Domain(value="acme.com")
+        result = HunterDomainTransform().run(entity)
+
+        # 1 Domain enriquecido + 2 Person + 2 Email = 5 entidades
+        assert any(e.type == "Domain" for e in result.entities)
+        persons = [e for e in result.entities if e.type == "Person"]
+        emails = [e for e in result.entities if e.type == "Email"]
+        assert len(persons) == 2
+        assert len(emails) == 2
+
+        # Edges: ASSOCIATED_WITH, WORKS_AT, USES_EMAIL (3 tipos)
+        rels_by_type = {r["type"] for r in result.relationships}
+        assert "WORKS_AT" in rels_by_type
+        assert "ASSOCIATED_WITH" in rels_by_type
+        assert "USES_EMAIL" in rels_by_type
+
+        # 2 pessoas × 3 edges cada = 6
+        assert len(result.relationships) == 6
+
+        # Domain enriquecido tem as props do Hunter
+        domain_entity = [e for e in result.entities if e.type == "Domain"][0]
+        assert domain_entity.properties["hunter_organization"] == "Acme"
+        assert domain_entity.properties["hunter_available"] is True
+        assert domain_entity.properties["hunter_pattern"] == "{first}"
+
+    def test_hunter_domain_dedupes_emails(self, monkeypatch):
+        """Se 2 pessoas compartilham o mesmo email, conta só uma vez.
+
+        Implementação atual: o loop inteiro pula entradas cujo email já
+        apareceu em seen_emails, então tanto o Person quanto o Email
+        são criados apenas para a primeira ocorrência. Isso evita
+        duplicação de Email no grafo.
+        """
+        from openm.transforms.hunter_domain import HunterDomainTransform
+
+        fake_data = {
+            "available": True, "organization": "Acme",
+            "pattern": None, "accept_all": None,
+            "linked_domains": [], "people": [
+                {"first_name": "A", "last_name": "B", "position": None,
+                 "seniority": None, "department": None, "confidence": 50,
+                 "email": "shared@acme.com", "email_type": "personal",
+                 "linkedin": None, "twitter": None, "sources": [],
+                 "verification": None},
+                {"first_name": "C", "last_name": "D", "position": None,
+                 "seniority": None, "department": None, "confidence": 50,
+                 "email": "shared@acme.com", "email_type": "personal",
+                 "linkedin": None, "twitter": None, "sources": [],
+                 "verification": None},
+            ],
+            "quota_exceeded": False, "gdpr_blocked": False,
+        }
+        monkeypatch.setattr(
+            "openm.services.hunter_service.HunterService.investigate_domain",
+            lambda d: fake_data,
+        )
+        result = HunterDomainTransform().run(Domain(value="acme.com"))
+        emails = [e for e in result.entities if e.type == "Email"]
+        persons = [e for e in result.entities if e.type == "Person"]
+        assert len(emails) == 1
+        # E apenas 1 Person e criado (a entrada duplicada e pulada)
+        assert len(persons) == 1
+
+    def test_hunter_domain_quota_exceeded(self, monkeypatch):
+        from openm.transforms.hunter_domain import HunterDomainTransform
+
+        fake_data = {
+            "domain": "acme.com", "available": False,
+            "organization": None, "pattern": None, "accept_all": None,
+            "linked_domains": [], "people": [],
+            "quota_exceeded": True, "gdpr_blocked": False,
+        }
+        monkeypatch.setattr(
+            "openm.services.hunter_service.HunterService.investigate_domain",
+            lambda d: fake_data,
+        )
+        result = HunterDomainTransform().run(Domain(value="acme.com"))
+        # Domain enriquecido existe, sem Person/Email
+        assert any(e.type == "Domain" for e in result.entities)
+        assert not any(e.type == "Person" for e in result.entities)
+        assert not any(e.type == "Email" for e in result.entities)
+        # Edge cases
+        assert result.relationships == []
+        domain_entity = [e for e in result.entities if e.type == "Domain"][0]
+        assert domain_entity.properties["hunter_quota_exceeded"] is True
+        assert domain_entity.properties["hunter_available"] is False
+
+    def test_hunter_domain_gdpr_blocked(self, monkeypatch):
+        from openm.transforms.hunter_domain import HunterDomainTransform
+
+        fake_data = {
+            "domain": "acme.com", "available": False,
+            "organization": None, "pattern": None, "accept_all": None,
+            "linked_domains": [], "people": [],
+            "quota_exceeded": False, "gdpr_blocked": True,
+        }
+        monkeypatch.setattr(
+            "openm.services.hunter_service.HunterService.investigate_domain",
+            lambda d: fake_data,
+        )
+        result = HunterDomainTransform().run(Domain(value="acme.com"))
+        assert any(e.type == "Domain" for e in result.entities)
+        assert not any(e.type == "Person" for e in result.entities)
+        domain_entity = [e for e in result.entities if e.type == "Domain"][0]
+        assert domain_entity.properties["hunter_gdpr_blocked"] is True
+
+    def test_hunter_domain_no_people(self, monkeypatch):
+        """Domain sem emails retornados — apenas o Domain enriquecido."""
+        from openm.transforms.hunter_domain import HunterDomainTransform
+
+        fake_data = {
+            "domain": "empty.com", "available": True,
+            "organization": "Empty Org", "pattern": None,
+            "accept_all": None, "linked_domains": [], "people": [],
+            "quota_exceeded": False, "gdpr_blocked": False,
+        }
+        monkeypatch.setattr(
+            "openm.services.hunter_service.HunterService.investigate_domain",
+            lambda d: fake_data,
+        )
+        result = HunterDomainTransform().run(Domain(value="empty.com"))
+        assert len(result.entities) == 1  # só o Domain
+        assert result.entities[0].type == "Domain"
+        assert result.relationships == []
+
+    def test_hunter_domain_ignores_non_domain(self):
+        from openm.transforms.hunter_domain import HunterDomainTransform
+
+        result = HunterDomainTransform().run(Email(value="x@y.com"))
+        assert result.entities == []
+        assert result.relationships == []
+
+    def test_hunter_domain_preserves_entity_id(self, monkeypatch):
+        """A entidade Domain enriquecida mantém o mesmo id da original."""
+        from openm.transforms.hunter_domain import HunterDomainTransform
+
+        fake_data = {
+            "available": True, "organization": "X",
+            "pattern": None, "accept_all": None,
+            "linked_domains": [], "people": [],
+            "quota_exceeded": False, "gdpr_blocked": False,
+        }
+        monkeypatch.setattr(
+            "openm.services.hunter_service.HunterService.investigate_domain",
+            lambda d: fake_data,
+        )
+        entity = Domain(value="acme.com")
+        result = HunterDomainTransform().run(entity)
+        domain_entity = [e for e in result.entities if e.type == "Domain"][0]
+        assert domain_entity.id == entity.id
+
+
+class TestHunterEmailTransform:
+    """HunterEmailTransform: Email → validation annotation."""
+
+    def test_hunter_email_valid(self, monkeypatch):
+        from openm.transforms.hunter_email import HunterEmailTransform
+
+        fake_data = {
+            "available": True, "status": "valid", "score": 95,
+            "deliverable": True, "mx_records": True, "smtp_server": True,
+            "smtp_check": True, "accept_all": False, "disposable": False,
+            "webmail": False, "block": False, "sources": [],
+            "quota_exceeded": False, "gdpr_blocked": False,
+        }
+        monkeypatch.setattr(
+            "openm.services.hunter_service.HunterService.investigate_email",
+            lambda e: fake_data,
+        )
+        result = HunterEmailTransform().run(Email(value="jane@acme.com"))
+        assert len(result.entities) == 1
+        email_entity = result.entities[0]
+        assert email_entity.type == "Email"
+        assert email_entity.properties["hunter_status"] == "valid"
+        assert email_entity.properties["hunter_score"] == 95
+        assert email_entity.properties["hunter_deliverable"] is True
+        assert email_entity.properties["hunter_mx_records"] is True
+        assert result.relationships == []
+
+    def test_hunter_email_disposable(self, monkeypatch):
+        from openm.transforms.hunter_email import HunterEmailTransform
+
+        fake_data = {
+            "available": True, "status": "disposable", "score": 50,
+            "deliverable": False, "mx_records": False, "smtp_server": False,
+            "smtp_check": False, "accept_all": False, "disposable": True,
+            "webmail": False, "block": False, "sources": [],
+            "quota_exceeded": False, "gdpr_blocked": False,
+        }
+        monkeypatch.setattr(
+            "openm.services.hunter_service.HunterService.investigate_email",
+            lambda e: fake_data,
+        )
+        result = HunterEmailTransform().run(Email(value="temp@mailinator.com"))
+        email_entity = result.entities[0]
+        assert email_entity.properties["hunter_status"] == "disposable"
+        assert email_entity.properties["hunter_disposable"] is True
+        assert email_entity.properties["hunter_deliverable"] is False
+
+    def test_hunter_email_unknown(self, monkeypatch):
+        from openm.transforms.hunter_email import HunterEmailTransform
+
+        fake_data = {
+            "available": True, "status": "unknown", "score": 50,
+            "deliverable": None, "mx_records": None, "smtp_server": None,
+            "smtp_check": None, "accept_all": None, "disposable": None,
+            "webmail": None, "block": None, "sources": [],
+            "quota_exceeded": False, "gdpr_blocked": False,
+        }
+        monkeypatch.setattr(
+            "openm.services.hunter_service.HunterService.investigate_email",
+            lambda e: fake_data,
+        )
+        result = HunterEmailTransform().run(Email(value="nobody@nowhere.com"))
+        email_entity = result.entities[0]
+        assert email_entity.properties["hunter_status"] == "unknown"
+
+    def test_hunter_email_quota_exceeded(self, monkeypatch):
+        from openm.transforms.hunter_email import HunterEmailTransform
+
+        fake_data = {
+            "available": False, "status": None, "score": None,
+            "deliverable": None, "mx_records": None, "smtp_server": None,
+            "smtp_check": None, "accept_all": None, "disposable": None,
+            "webmail": None, "block": None, "sources": [],
+            "quota_exceeded": True, "gdpr_blocked": False,
+        }
+        monkeypatch.setattr(
+            "openm.services.hunter_service.HunterService.investigate_email",
+            lambda e: fake_data,
+        )
+        result = HunterEmailTransform().run(Email(value="x@y.com"))
+        email_entity = result.entities[0]
+        assert email_entity.properties["hunter_quota_exceeded"] is True
+        assert email_entity.properties["hunter_status"] == "unknown"  # default
+        assert email_entity.properties["hunter_available"] is False
+
+    def test_hunter_email_gdpr_blocked(self, monkeypatch):
+        from openm.transforms.hunter_email import HunterEmailTransform
+
+        fake_data = {
+            "available": False, "status": None, "score": None,
+            "deliverable": None, "mx_records": None, "smtp_server": None,
+            "smtp_check": None, "accept_all": None, "disposable": None,
+            "webmail": None, "block": None, "sources": [],
+            "quota_exceeded": False, "gdpr_blocked": True,
+        }
+        monkeypatch.setattr(
+            "openm.services.hunter_service.HunterService.investigate_email",
+            lambda e: fake_data,
+        )
+        result = HunterEmailTransform().run(Email(value="x@y.com"))
+        email_entity = result.entities[0]
+        assert email_entity.properties["hunter_gdpr_blocked"] is True
+
+    def test_hunter_email_ignores_non_email(self):
+        from openm.transforms.hunter_email import HunterEmailTransform
+
+        result = HunterEmailTransform().run(Domain(value="acme.com"))
+        assert result.entities == []
+        assert result.relationships == []
+
+    def test_hunter_email_sources_truncated_to_top_5(self, monkeypatch):
+        """Só top 5 sources sao mantidas (nao inflar o nó)."""
+        from openm.transforms.hunter_email import HunterEmailTransform
+
+        sources = [
+            {"domain": f"s{i}.com", "uri": f"http://s{i}"} for i in range(10)
+        ]
+        fake_data = {
+            "available": True, "status": "valid", "score": 80,
+            "deliverable": True, "mx_records": True, "smtp_server": True,
+            "smtp_check": True, "accept_all": False, "disposable": False,
+            "webmail": False, "block": False, "sources": sources,
+            "quota_exceeded": False, "gdpr_blocked": False,
+        }
+        monkeypatch.setattr(
+            "openm.services.hunter_service.HunterService.investigate_email",
+            lambda e: fake_data,
+        )
+        result = HunterEmailTransform().run(Email(value="x@y.com"))
+        email_entity = result.entities[0]
+        assert len(email_entity.properties["hunter_sources"]) == 5
+        assert email_entity.properties["hunter_sources_count"] == 10
+
+    def test_hunter_email_preserves_entity_id(self, monkeypatch):
+        from openm.transforms.hunter_email import HunterEmailTransform
+
+        fake_data = {
+            "available": True, "status": "valid", "score": 95,
+            "deliverable": True, "mx_records": True, "smtp_server": True,
+            "smtp_check": True, "accept_all": False, "disposable": False,
+            "webmail": False, "block": False, "sources": [],
+            "quota_exceeded": False, "gdpr_blocked": False,
+        }
+        monkeypatch.setattr(
+            "openm.services.hunter_service.HunterService.investigate_email",
+            lambda e: fake_data,
+        )
+        entity = Email(value="x@y.com")
+        result = HunterEmailTransform().run(entity)
+        assert result.entities[0].id == entity.id
