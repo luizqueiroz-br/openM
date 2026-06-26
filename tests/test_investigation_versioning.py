@@ -11,9 +11,13 @@ Cobre:
 - Audit log 409 gravado
 - Version em to_dict (POST/GET/PUT)
 - DELETE não incrementa version
+- **Race condition entre SELECT e UPDATE (issue #62)** — quando outra
+  transação incrementa a versão entre nosso SELECT e nosso UPDATE,
+  o handler detecta via ``rows_updated == 0`` e retorna 409 com
+  ``metadata.race=True`` no audit log.
 """
 
-import pytest  # noqa: F401 — reserved for future fixture usage
+import pytest  # noqa: F401 — fixtures via conftest
 
 from openm.core.auth import hash_password
 from openm.extensions import db
@@ -310,6 +314,162 @@ class TestVersioning:
 
         version_after = self._get_version(app, inv_id)
         assert version_after == version_before
+
+
+class TestOptimisticLockingRaceCondition:
+    """Race condition entre SELECT e UPDATE (issue #62 — complementa #37).
+
+    Simula o cenário onde:
+      1. Cliente A lê a investigation (version=1)
+      2. Cliente A aplica mudanças localmente
+      3. Cliente B salva (PUT) — versão agora é 2
+      4. Cliente A tenta salvar (PUT) — pre-check passa (A ainda vê
+         version=1 no snapshot local), mas o conditional UPDATE atômico
+         detecta o conflito via ``rows_updated == 0`` e retorna 409 com
+         ``metadata.race=true`` no audit log.
+    """
+
+    def test_race_condition_returns_409_with_race_flag(self, auth_client, app, monkeypatch):
+        """Quando o conditional UPDATE retorna 0 rows (simulado), o PUT
+        retorna 409 com audit log marcado ``race=true``.
+        """
+        # Setup: investigation legacy (user_id=None) — auth_client pode editar
+        with app.app_context():
+            inv = Investigation(
+                title="Race test",
+                user_id=None,
+                status="active",
+            )
+            db.session.add(inv)
+            db.session.commit()
+            inv_id = inv.id
+
+        # Monkeypatch db.session.query(Investigation) para retornar um
+        # mock cujo .filter().update() retorna 0 (simula race condition).
+        # Importante: patchar no módulo onde db.session é usado
+        # (openm.api.investigations), NÃO em openm.extensions, porque o
+        # handler importa ``from openm.extensions import db`` e usa
+        # ``db.session.query`` — o monkeypatch precisa afetar a referência
+        # que o handler enxerga.
+        from openm.api import investigations as inv_module
+        from openm.models.investigation import Investigation as InvModel
+
+        original_query = inv_module.db.session.query
+
+        class FakeQuery:
+            """Mock mínimo de Query — só suporta .filter().update()"""
+
+            def __init__(self, model):
+                self.model = model
+
+            def filter(self, *args, **kwargs):
+                return self  # chainable
+
+            def update(self, values, synchronize_session=None):
+                # Simula race: nenhuma row atualizada
+                return 0
+
+        def fake_query(*model, **kwargs):
+            if model and model[0] is InvModel:
+                return FakeQuery(model[0])
+            return original_query(*model, **kwargs)
+
+        monkeypatch.setattr(inv_module.db.session, "query", fake_query)
+
+        # PUT com If-Match correto (pre-check passa porque versão
+        # carregada no início é 1) — mas UPDATE falha (race) → 409
+        resp = auth_client.put(
+            f"/api/investigations/{inv_id}",
+            json={"title": "should not save"},
+            headers={"If-Match": '"1"'},
+        )
+
+        # 409 com current_snapshot + conflict detectado
+        assert resp.status_code == 409
+        data = resp.get_json()
+        assert data["error"] == "conflict"
+        assert data["your_version"] == 1
+
+        # Verifica audit log com metadata.race=True
+        with app.app_context():
+            logs = AuditLog.query.filter_by(
+                action="investigation.update",
+                target_id=str(inv_id),
+            ).all()
+            race_logs = [
+                log for log in logs
+                if log.meta and log.meta.get("race") is True
+            ]
+            assert len(race_logs) >= 1, (
+                f"esperava ≥1 audit log com race=True, "
+                f"encontrei: {[log.meta for log in logs]}"
+            )
+            race_log = race_logs[0]
+            assert race_log.meta.get("conflict") is True
+            assert race_log.meta.get("race") is True
+            assert race_log.meta.get("your_version") == 1
+
+        # Version no DB não mudou (UPDATE falhou atomicamente)
+        assert self._get_version(app, inv_id) == 1
+
+    def test_race_condition_with_subsequent_deletion_returns_404(self, auth_client, app, monkeypatch):
+        """Edge case: race detectada, mas a investigation foi deletada
+        entre o rollback e o re-fetch via ``_owned_or_404``. Retorna 404
+        ao invés de 409 (a entidade já não existe).
+        """
+        # Setup: investigation legacy
+        with app.app_context():
+            inv = Investigation(
+                title="Race then delete",
+                user_id=None,
+                status="active",
+            )
+            db.session.add(inv)
+            db.session.commit()
+            inv_id = inv.id
+
+        # Monkeypatch db.session.query(Investigation).filter().update()
+        # para retornar 0 (simula race) E _owned_or_404 para retornar
+        # None (simula delete concorrente).
+        from openm.api import investigations as inv_module
+        from openm.models.investigation import Investigation as InvModel
+
+        original_query = inv_module.db.session.query
+
+        class FakeQuery:
+            def filter(self, *args, **kwargs):
+                return self
+
+            def update(self, values, synchronize_session=None):
+                return 0  # simula race
+
+        def fake_query(*model, **kwargs):
+            if model and model[0] is InvModel:
+                return FakeQuery()
+            return original_query(*model, **kwargs)
+
+        monkeypatch.setattr(inv_module.db.session, "query", fake_query)
+
+        # _owned_or_404 retorna None → 404 (race path, mas entidade sumiu)
+        def fake_owned_or_404(inv_id):
+            return None
+
+        monkeypatch.setattr(inv_module, "_owned_or_404", fake_owned_or_404)
+
+        # PUT com If-Match correto (mas entity sumiu depois do UPDATE)
+        resp = auth_client.put(
+            f"/api/investigations/{inv_id}",
+            json={"title": "should not save"},
+            headers={"If-Match": '"1"'},
+        )
+
+        assert resp.status_code == 404
+        assert resp.get_json() == {"error": "not found"}
+
+    @staticmethod
+    def _get_version(app, inv_id):
+        with app.app_context():
+            return db.session.get(Investigation, inv_id).version
 
 
 class TestVersioningAfterDelete:
