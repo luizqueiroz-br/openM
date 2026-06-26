@@ -111,6 +111,21 @@ const Graph = {
                 },
             },
             {
+                // Issue #6: nó enriquecido por VirusTotal com
+                // virustotal_flagged === true ganha borda vermelha e badge.
+                selector: 'node[virustotal_flagged = "true"], node[virustotal_flagged = true]',
+                style: {
+                    'border-width': 3,
+                    'border-color': (ele) => getFlaggedColor(),
+                    'border-style': 'solid',
+                    'background-color': (ele) => getFlaggedColor(),
+                    'background-opacity': 0.25,
+                    'underlay-color': (ele) => getFlaggedColor(),
+                    'underlay-opacity': 0.35,
+                    'underlay-padding': 4,
+                },
+            },
+            {
                 selector: 'node.dimmed',
                 style: { 'opacity': 0.25 },
             },

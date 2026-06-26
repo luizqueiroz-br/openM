@@ -30,6 +30,9 @@
     --c-device: #fb923c;
     --c-generic: #64748b;
 
+    /* Issue #6 — destaque visual para entidades flagged por VirusTotal */
+    --c-flagged: #ef4444;
+
     --radius: 6px;
     --radius-lg: 10px;
     --shadow: 0 4px 16px rgba(0, 0, 0, 0.4);
@@ -726,6 +729,26 @@ label {
 
 .tag.free { color: var(--success); border-color: var(--success); }
 .tag.paid { color: var(--warn); border-color: var(--warn); }
+
+/* Issue #6 — badge de VirusTotal flagged (entidade marcada como malicious). */
+.flagged {
+    display: inline-block;
+    padding: 0.1rem 0.4rem;
+    background: rgba(239, 68, 68, 0.15);
+    border: 1px solid var(--c-flagged);
+    border-radius: 4px;
+    font-size: 0.7rem;
+    font-weight: 600;
+    color: var(--c-flagged);
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+}
+
+.flagged::before {
+    content: "⚑";
+    margin-right: 0.3rem;
+    color: var(--c-flagged);
+}
 
 .empty {
     padding: 1rem;

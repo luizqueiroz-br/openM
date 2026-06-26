@@ -1,6 +1,7 @@
 import os
 from unittest.mock import patch
 
+import openm.transforms  # noqa: F401 — dispara o @Transform.register em todos os transforms
 from openm.core.entity import Domain, Email, IPAddress
 from openm.transforms.fraud_email import CheckFraudEmailTransform
 from openm.transforms.resolve_ip import ResolveIPTransform
@@ -1419,3 +1420,353 @@ def test_whois_transform_br_format():
     # Check relationship
     rel_types = [r["type"] for r in result.relationships]
     assert "REGISTERED_BY" in rel_types
+
+
+# ====================================================================
+# VirusTotal Transform
+# ====================================================================
+
+MOCK_VT_DOMAIN_FLAGGED = {
+    "value": "example.com",
+    "type": "Domain",
+    "source": "virustotal",
+    "available": True,
+    "reputation": -41,
+    "last_analysis_stats": {
+        "malicious": 4,
+        "suspicious": 1,
+        "undetected": 9,
+        "harmless": 83,
+        "timeout": 0,
+    },
+    "flagged_by": [
+        {"engine": "Kaspersky", "category": "malicious",
+         "result": "malware site"},
+        {"engine": "PhishTank", "category": "suspicious",
+         "result": "phishing"},
+        {"engine": "Sophos", "category": "malicious", "result": "Mal/Phish"},
+    ],
+    "checked_at": "2025-06-26T12:00:00+00:00",
+}
+
+MOCK_VT_DOMAIN_CLEAN = {
+    "value": "clean.com",
+    "type": "Domain",
+    "source": "virustotal",
+    "available": True,
+    "reputation": 0,
+    "last_analysis_stats": {
+        "malicious": 0, "suspicious": 0, "undetected": 5,
+        "harmless": 90, "timeout": 0,
+    },
+    "flagged_by": [],
+    "checked_at": "2025-06-26T12:00:00+00:00",
+}
+
+MOCK_VT_NOT_FOUND = {
+    "value": "missing.com",
+    "type": "Domain",
+    "source": "virustotal",
+    "available": False,
+    "reputation": None,
+    "last_analysis_stats": None,
+    "flagged_by": [],
+    "checked_at": "2025-06-26T12:00:00+00:00",
+}
+
+
+def test_virustotal_transform_registered():
+    """VirusTotalTransform deve aparecer em TransformRegistry.list_all()."""
+    from openm.core.transform import TransformRegistry
+
+    transforms = TransformRegistry.list_all()
+    names = [t["name"] for t in transforms]
+    assert "virustotal_lookup" in names
+
+    # E em list_for_type para Domain e IPAddress
+    for entity_type in ("Domain", "IPAddress"):
+        compatible = TransformRegistry.list_for_type(entity_type)
+        assert any(t["name"] == "virustotal_lookup" for t in compatible), (
+            f"virustotal_lookup não disponível para {entity_type}"
+        )
+
+
+def test_virustotal_transform_with_flagged_engines():
+    """Domain com 3 engines flagged → entidade enriquecida + 3 Devices + 3 edges."""
+    from openm.transforms.virustotal import VirusTotalTransform
+
+    domain = Domain(value="example.com", properties={})
+    transform = VirusTotalTransform()
+
+    with patch(
+        "openm.transforms.virustotal.VirusTotalService.investigate_entity",
+        return_value=MOCK_VT_DOMAIN_FLAGGED,
+    ) as mock_investigate:
+        result = transform.run(domain)
+
+    # 1 Domain (enriquecida) + 3 Device (engines) = 4 entidades
+    assert len(result.entities) == 4
+    assert len(result.relationships) == 3
+
+    # Edge type
+    assert all(r["type"] == "FLAGGED_BY" for r in result.relationships)
+
+    # Engines como Device com role=antivirus_engine
+    device_entities = [e for e in result.entities if e.type == "Device"]
+    assert len(device_entities) == 3
+    engines = {e.value for e in device_entities}
+    assert engines == {"Kaspersky", "PhishTank", "Sophos"}
+    assert all(e.properties["role"] == "antivirus_engine" for e in device_entities)
+
+    # Properties da entidade Domain
+    domain_entity = [e for e in result.entities if e.type == "Domain"][0]
+    assert domain_entity.properties["virustotal_reputation"] == -41
+    assert domain_entity.properties["virustotal_malicious_count"] == 4
+    assert domain_entity.properties["virustotal_suspicious_count"] == 1
+    assert domain_entity.properties["virustotal_harmless_count"] == 83
+    assert domain_entity.properties["virustotal_undetected_count"] == 9
+    assert domain_entity.properties["virustotal_flagged"] is True
+    assert domain_entity.properties["virustotal_available"] is True
+    assert "virustotal_checked_at" in domain_entity.properties
+
+    # Args da investigate_entity
+    mock_investigate.assert_called_once_with("Domain", "example.com")
+
+
+def test_virustotal_transform_clean_entity():
+    """Domain sem flags → entidade enriquecida (sem Devices)."""
+    from openm.transforms.virustotal import VirusTotalTransform
+
+    domain = Domain(value="clean.com", properties={})
+    transform = VirusTotalTransform()
+
+    with patch(
+        "openm.transforms.virustotal.VirusTotalService.investigate_entity",
+        return_value=MOCK_VT_DOMAIN_CLEAN,
+    ):
+        result = transform.run(domain)
+
+    # Apenas a Domain enriquecida — nenhum Device
+    assert len(result.entities) == 1
+    assert result.entities[0].type == "Domain"
+    assert len(result.relationships) == 0
+
+    domain_entity = result.entities[0]
+    assert domain_entity.properties["virustotal_flagged"] is False
+    assert domain_entity.properties["virustotal_malicious_count"] == 0
+    assert domain_entity.properties["virustotal_suspicious_count"] == 0
+    assert domain_entity.properties["virustotal_available"] is True
+
+
+def test_virustotal_transform_no_data():
+    """API retorna 404 → entidade anotada com virustotal_available=False,
+    sem Devices/edges FLAGGED_BY."""
+    from openm.transforms.virustotal import VirusTotalTransform
+
+    domain = Domain(value="missing.com", properties={})
+    transform = VirusTotalTransform()
+
+    with patch(
+        "openm.transforms.virustotal.VirusTotalService.investigate_entity",
+        return_value=MOCK_VT_NOT_FOUND,
+    ):
+        result = transform.run(domain)
+
+    # A entidade enriquecida é criada com flag de indisponibilidade
+    assert len(result.entities) == 1
+    assert len(result.relationships) == 0
+    enriched = result.entities[0]
+    assert enriched.type == "Domain"
+    assert enriched.id == domain.id  # id preservado
+    assert enriched.properties["virustotal_available"] is False
+    assert enriched.properties["virustotal_flagged"] is False
+    assert enriched.properties["virustotal_malicious_count"] == 0
+
+
+def test_virustotal_transform_ip_input():
+    """IPAddress → IPAddress enriquecida + edges (mesmo pattern do Domain)."""
+    from openm.transforms.virustotal import VirusTotalTransform
+
+    mock_ip = {
+        "value": "1.1.1.1",
+        "type": "IPAddress",
+        "source": "virustotal",
+        "available": True,
+        "reputation": -22,
+        "last_analysis_stats": {
+            "malicious": 2, "suspicious": 0, "undetected": 15,
+            "harmless": 70, "timeout": 0,
+        },
+        "flagged_by": [
+            {"engine": "Kaspersky", "category": "malicious", "result": "C2"},
+        ],
+        "checked_at": "2025-06-26T12:00:00+00:00",
+    }
+
+    ip = IPAddress(value="1.1.1.1")
+    transform = VirusTotalTransform()
+
+    with patch(
+        "openm.transforms.virustotal.VirusTotalService.investigate_entity",
+        return_value=mock_ip,
+    ) as mock_investigate:
+        result = transform.run(ip)
+
+    # 1 IPAddress enriquecida + 1 Device (Kaspersky) = 2 entidades
+    assert len(result.entities) == 2
+    assert len(result.relationships) == 1
+    assert result.relationships[0]["type"] == "FLAGGED_BY"
+
+    ip_entity = [e for e in result.entities if e.type == "IPAddress"][0]
+    assert ip_entity.properties["virustotal_malicious_count"] == 2
+    assert ip_entity.properties["virustotal_flagged"] is True
+
+    # Args corretos para IPAddress
+    mock_investigate.assert_called_once_with("IPAddress", "1.1.1.1")
+
+
+def test_virustotal_transform_preserves_entity_id():
+    """A entidade enriquecida mantém o mesmo id da entidade original."""
+    from openm.transforms.virustotal import VirusTotalTransform
+
+    domain = Domain(value="example.com", properties={})
+    transform = VirusTotalTransform()
+
+    with patch(
+        "openm.transforms.virustotal.VirusTotalService.investigate_entity",
+        return_value=MOCK_VT_DOMAIN_FLAGGED,
+    ):
+        result = transform.run(domain)
+
+    domain_entity = [e for e in result.entities if e.type == "Domain"][0]
+    assert domain_entity.id == domain.id
+
+
+def test_virustotal_transform_skips_invalid_type():
+    """Email não é aceito (input_types=[Domain, IPAddress])."""
+    from openm.transforms.virustotal import VirusTotalTransform
+
+    email = Email(value="x@y.com")
+    transform = VirusTotalTransform()
+    result = transform.run(email)
+    assert result.entities == []
+    assert result.relationships == []
+
+
+def test_virustotal_transform_investigate_called_with_correct_args():
+    """Verifica args exatos passados para investigate_entity."""
+    from openm.transforms.virustotal import VirusTotalTransform
+
+    domain = Domain(value="foo.bar", properties={})
+    transform = VirusTotalTransform()
+
+    with patch(
+        "openm.transforms.virustotal.VirusTotalService.investigate_entity",
+        return_value=MOCK_VT_NOT_FOUND,
+    ) as mock_investigate:
+        transform.run(domain)
+
+    mock_investigate.assert_called_once_with("Domain", "foo.bar")
+
+
+def test_virustotal_transform_preserves_existing_properties():
+    """Propriedades já existentes na entidade são preservadas."""
+    from openm.transforms.virustotal import VirusTotalTransform
+
+    domain = Domain(
+        value="example.com",
+        properties={"whois_registrar": "X", "geo_country": "US"},
+    )
+    transform = VirusTotalTransform()
+
+    with patch(
+        "openm.transforms.virustotal.VirusTotalService.investigate_entity",
+        return_value=MOCK_VT_DOMAIN_FLAGGED,
+    ):
+        result = transform.run(domain)
+
+    domain_entity = [e for e in result.entities if e.type == "Domain"][0]
+    assert domain_entity.properties.get("whois_registrar") == "X"
+    assert domain_entity.properties.get("geo_country") == "US"
+    assert domain_entity.properties.get("virustotal_flagged") is True
+
+
+def test_virustotal_transform_flagged_by_edge_properties():
+    """Edges FLAGGED_BY carregam category/result/checked_at."""
+    from openm.transforms.virustotal import VirusTotalTransform
+
+    domain = Domain(value="example.com", properties={})
+    transform = VirusTotalTransform()
+
+    with patch(
+        "openm.transforms.virustotal.VirusTotalService.investigate_entity",
+        return_value=MOCK_VT_DOMAIN_FLAGGED,
+    ):
+        result = transform.run(domain)
+
+    flagged_edges = [r for r in result.relationships if r["type"] == "FLAGGED_BY"]
+    assert len(flagged_edges) == 3
+    for edge in flagged_edges:
+        assert "category" in edge["properties"]
+        assert "result" in edge["properties"]
+        assert "source" in edge["properties"]
+        assert "checked_at" in edge["properties"]
+        # from_id aponta para a entidade original
+        assert edge["from_id"] == domain.id
+
+
+# ====================================================================
+# TransformRegistry — service_name dinâmico (issue #6 follow-up)
+# ====================================================================
+
+class TestTransformRegistryServices:
+    """Cobertura do registro dinâmico de services para API Keys.
+
+    Garante que o dropdown de API Keys no frontend (index.html) possa
+    ser populado dinamicamente a partir do TransformRegistry.
+    """
+
+    def test_list_services_returns_only_transforms_with_service_name(self):
+        """Apenas transforms que declararam service_name aparecem."""
+        from openm.core.transform import TransformRegistry
+
+        services = TransformRegistry.list_services()
+        service_names = {s["service_name"] for s in services}
+
+        # Verifica presença dos 3 services esperados
+        assert "shodan" in service_names
+        assert "virustotal" in service_names
+        assert "emailrep" in service_names
+
+        # Verifica que transforms SEM service_name nao aparecem
+        # (whois, geoip, resolve_ip ficam de fora do dropdown)
+        for s in services:
+            assert s["service_name"], f"service_name vazio em {s}"
+            assert s["display_name"], f"display_name vazio em {s}"
+
+    def test_list_services_deduplicates(self):
+        """Se 2 transforms usam o mesmo service_name, aparece 1x apenas."""
+        from openm.core.transform import TransformRegistry
+
+        services = TransformRegistry.list_services()
+        service_names = [s["service_name"] for s in services]
+        assert len(service_names) == len(set(service_names))
+
+    def test_list_services_sorted_by_display_name(self):
+        """Ordenacao alfabetica case-insensitive por display_name."""
+        from openm.core.transform import TransformRegistry
+
+        services = TransformRegistry.list_services()
+        display_names = [s["display_name"] for s in services]
+        assert display_names == sorted(display_names, key=str.lower)
+
+    def test_list_services_response_shape(self):
+        """Cada item do retorno tem os 3 campos esperados."""
+        from openm.core.transform import TransformRegistry
+
+        services = TransformRegistry.list_services()
+        assert services, "esperava ao menos 1 service registrado"
+        for s in services:
+            assert "service_name" in s
+            assert "display_name" in s
+            assert "transform_name" in s

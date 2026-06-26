@@ -24,6 +24,8 @@ class ShodanTransform(Transform):
         "Consulta Shodan para descobrir portas abertas, serviços, "
         "banners e localização geográfica de um host."
     )
+    service_name = "shodan"
+    service_display = "Shodan"
 
     def run(self, entity: Entity) -> TransformResult:
         if entity.type not in self.input_types:

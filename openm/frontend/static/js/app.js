@@ -391,6 +391,29 @@ const App = {
         }
     },
 
+    async loadKeyServices() {
+        try {
+            const data = await OpenMAPI.listKeyServices();
+            const select = document.getElementById('key-service');
+            if (!select) {
+                return; // elemento nao presente nesta pagina
+            }
+            if (!data.services || data.services.length === 0) {
+                select.innerHTML = '<option value="">Nenhum serviço disponível</option>';
+                return;
+            }
+            select.innerHTML = data.services.map(s =>
+                `<option value="${s.service_name}">${s.display_name}</option>`
+            ).join('');
+        } catch (err) {
+            console.error('Falha ao carregar services:', err);
+            const select = document.getElementById('key-service');
+            if (select) {
+                select.innerHTML = '<option value="">Erro ao carregar</option>';
+            }
+        }
+    },
+
     async loadKeys() {
         try {
             const data = await OpenMAPI.listKeys();
@@ -559,6 +582,7 @@ const App = {
         Graph.init('cy');
         this.bindTopbar();
         this.loadInvestigations();
+        this.loadKeyServices();
         this.loadKeys();
         this.setStatus('Pronto. Arraste entidades da paleta para o canvas.');
         this.loadUser();
