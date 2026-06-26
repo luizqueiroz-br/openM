@@ -185,6 +185,10 @@ const OpenMAPI = {
     // ============ API Keys ============
     listKeys: () => api('/keys'),
 
+    // Lista os services disponiveis para cadastro de chave.
+    // Popula o <select id="key-service"> no painel de API Keys.
+    listKeyServices: () => api('/transforms/services'),
+
     saveKey: (serviceName, keyValue, keyType) =>
         api('/keys', {
             method: 'POST',

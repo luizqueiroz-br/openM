@@ -1,6 +1,7 @@
 import os
 from unittest.mock import patch
 
+import openm.transforms  # noqa: F401 — dispara o @Transform.register em todos os transforms
 from openm.core.entity import Domain, Email, IPAddress
 from openm.transforms.fraud_email import CheckFraudEmailTransform
 from openm.transforms.resolve_ip import ResolveIPTransform
@@ -1712,3 +1713,60 @@ def test_virustotal_transform_flagged_by_edge_properties():
         assert "checked_at" in edge["properties"]
         # from_id aponta para a entidade original
         assert edge["from_id"] == domain.id
+
+
+# ====================================================================
+# TransformRegistry — service_name dinâmico (issue #6 follow-up)
+# ====================================================================
+
+class TestTransformRegistryServices:
+    """Cobertura do registro dinâmico de services para API Keys.
+
+    Garante que o dropdown de API Keys no frontend (index.html) possa
+    ser populado dinamicamente a partir do TransformRegistry.
+    """
+
+    def test_list_services_returns_only_transforms_with_service_name(self):
+        """Apenas transforms que declararam service_name aparecem."""
+        from openm.core.transform import TransformRegistry
+
+        services = TransformRegistry.list_services()
+        service_names = {s["service_name"] for s in services}
+
+        # Verifica presença dos 3 services esperados
+        assert "shodan" in service_names
+        assert "virustotal" in service_names
+        assert "emailrep" in service_names
+
+        # Verifica que transforms SEM service_name nao aparecem
+        # (whois, geoip, resolve_ip ficam de fora do dropdown)
+        for s in services:
+            assert s["service_name"], f"service_name vazio em {s}"
+            assert s["display_name"], f"display_name vazio em {s}"
+
+    def test_list_services_deduplicates(self):
+        """Se 2 transforms usam o mesmo service_name, aparece 1x apenas."""
+        from openm.core.transform import TransformRegistry
+
+        services = TransformRegistry.list_services()
+        service_names = [s["service_name"] for s in services]
+        assert len(service_names) == len(set(service_names))
+
+    def test_list_services_sorted_by_display_name(self):
+        """Ordenacao alfabetica case-insensitive por display_name."""
+        from openm.core.transform import TransformRegistry
+
+        services = TransformRegistry.list_services()
+        display_names = [s["display_name"] for s in services]
+        assert display_names == sorted(display_names, key=str.lower)
+
+    def test_list_services_response_shape(self):
+        """Cada item do retorno tem os 3 campos esperados."""
+        from openm.core.transform import TransformRegistry
+
+        services = TransformRegistry.list_services()
+        assert services, "esperava ao menos 1 service registrado"
+        for s in services:
+            assert "service_name" in s
+            assert "display_name" in s
+            assert "transform_name" in s

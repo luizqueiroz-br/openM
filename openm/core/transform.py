@@ -1,6 +1,6 @@
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
-from typing import Dict, List, Type
+from typing import Dict, List, Optional, Type
 
 from .entity import Entity
 
@@ -26,6 +26,12 @@ class Transform(ABC):
     display_name: str = "Base Transform"
     input_types: List[str] = []
     description: str = ""
+    # Identifica a API externa (e sua chave) consumida pelo transform.
+    # Transforms que NAO precisam de chave (whois, geoip, resolve_ip)
+    # deixam ambos como None. Usado para popular dinamicamente o
+    # dropdown de API Keys no frontend (issue #6 follow-up).
+    service_name: Optional[str] = None  # ex: "shodan", "virustotal"
+    service_display: Optional[str] = None  # ex: "Shodan", "VirusTotal"
 
     @abstractmethod
     def run(self, entity: Entity) -> TransformResult:
@@ -85,6 +91,8 @@ class TransformRegistry:
                 "display_name": t.display_name,
                 "input_types": t.input_types,
                 "description": t.description,
+                "service_name": getattr(t, "service_name", None),
+                "service_display": getattr(t, "service_display", None),
             }
             for t in cls._transforms.values()
             if entity_type in t.input_types
@@ -99,6 +107,40 @@ class TransformRegistry:
                 "display_name": t.display_name,
                 "input_types": t.input_types,
                 "description": t.description,
+                "service_name": getattr(t, "service_name", None),
+                "service_display": getattr(t, "service_display", None),
             }
             for t in cls._transforms.values()
         ]
+
+    @classmethod
+    def list_services(cls) -> List[Dict]:
+        """Lista services disponíveis para cadastro de API Key.
+
+        Retorna apenas transforms que declararam ``service_name`` (nao
+        None). Usado para popular o dropdown de API Keys no frontend.
+        Deduplicado por ``service_name`` (caso 2 transforms usem o mesmo
+        service). Ordenado por ``display_name`` (case-insensitive) para
+        uma UI estável.
+
+        Returns:
+            Lista de dicts com chaves:
+              - service_name: slug usado em ``ApiKey.service_name``
+              - display_name: label legivel para o usuario
+              - transform_name: ``name`` do primeiro transform que
+                declarou esse service (util para o usuario entender
+                qual transform consome essa chave).
+        """
+        seen = set()
+        out = []
+        for t in cls._transforms.values():
+            sn = getattr(t, "service_name", None)
+            if sn and sn not in seen:
+                seen.add(sn)
+                out.append({
+                    "service_name": sn,
+                    "display_name": getattr(t, "service_display", sn),
+                    "transform_name": t.name,
+                })
+        out.sort(key=lambda x: x["display_name"].lower())
+        return out

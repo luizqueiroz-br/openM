@@ -32,6 +32,8 @@ class VirusTotalTransform(Transform):
         "análise (malicious/suspicious/harmless/undetected) e engines "
         "que marcaram como malicious ou suspicious."
     )
+    service_name = "virustotal"
+    service_display = "VirusTotal"
 
     def run(self, entity: Entity) -> TransformResult:
         if entity.type not in self.input_types:

@@ -9,6 +9,33 @@ from openm.utils.neo4j_client import get_graph_manager
 transforms_bp = Blueprint("transforms", __name__, url_prefix="/api")
 
 
+@transforms_bp.route("/transforms/services", methods=["GET"])
+@require_auth
+def list_services():
+    """
+    GET /api/transforms/services
+
+    Lista os ``service_name`` disponíveis para cadastro de API Key
+    (apenas transforms que declararam ``service_name`` na classe).
+
+    Usado para popular dinamicamente o dropdown de API Keys no
+    frontend (index.html) — antes disso o dropdown estava
+    hardcoded com 4 services e perdia qualquer transform novo
+    (ex: VirusTotal no PR #54) até atualizacao manual.
+
+    Returns:
+        200 com ``{"services": [{"service_name", "display_name",
+        "transform_name"}, ...]}`` ordenado por ``display_name``.
+
+    IMPORTANTE: esta rota é registrada ANTES de
+    ``/transforms/<entity_type>`` para que o Flask faça o match
+    exato primeiro; senao ``/transforms/services`` cairia no
+    parametro ``entity_type="services"`` e quebraria.
+    """
+    services = TransformRegistry.list_services()
+    return jsonify({"services": services})
+
+
 @transforms_bp.route("/transforms/<entity_type>", methods=["GET"])
 @require_auth
 def list_transforms(entity_type: str):

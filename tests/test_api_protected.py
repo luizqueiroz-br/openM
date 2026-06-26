@@ -64,6 +64,63 @@ def api_prot_token(api_prot_app):
     return resp.get_json()["access_token"]
 
 
+class TestListServicesEndpoint:
+    """Cobertura do endpoint GET /api/transforms/services.
+
+    Este endpoint existe para alimentar dinamicamente o dropdown de
+    API Keys no frontend (index.html) — antes dele, o dropdown estava
+    hardcoded com 4 services e qualquer transform novo (ex: VirusTotal
+    no PR #54) nao aparecia na UI ate atualizacao manual.
+    """
+
+    def test_endpoint_requires_auth(self, client):
+        """Sem token, retorna 401."""
+        resp = client.get("/api/transforms/services")
+        assert resp.status_code == 401
+
+    def test_endpoint_returns_services(self, auth_client):
+        """Com token, retorna 200 e lista de services no shape correto."""
+        resp = auth_client.get("/api/transforms/services")
+        assert resp.status_code == 200
+        data = resp.get_json()
+        assert "services" in data
+        assert isinstance(data["services"], list)
+        # Verifica shape de cada item (se houver algum)
+        if data["services"]:
+            item = data["services"][0]
+            assert "service_name" in item
+            assert "display_name" in item
+            assert "transform_name" in item
+
+    def test_endpoint_includes_virustotal_and_shodan(self, auth_client):
+        """VirusTotal (PR #54) e Shodan aparecem na lista."""
+        resp = auth_client.get("/api/transforms/services")
+        data = resp.get_json()
+        names = {s["service_name"] for s in data["services"]}
+        assert "virustotal" in names
+        assert "shodan" in names
+        assert "emailrep" in names
+
+    def test_endpoint_does_not_match_entity_type_route(self, auth_client):
+        """Edge case critico: a rota nova NAO pode cair em /transforms/<entity_type>.
+
+        Se a ordem de registro das rotas estiver invertida, o Flask
+        casaria /api/transforms/services com /api/transforms/<entity_type>
+        (entity_type='services'), o que retornaria lista vazia de
+        transforms compativeis com o tipo 'services' (que nao existe) —
+        sem a chave 'services' na resposta.
+        """
+        resp = auth_client.get("/api/transforms/services")
+        assert resp.status_code == 200
+        body = resp.get_json()
+        assert "services" in body, (
+            "Endpoint caiu em /transforms/<entity_type> — chave esperada "
+            "'services' nao esta no corpo. Reordene as rotas em "
+            "openm/api/transforms.py."
+        )
+        assert "transforms" not in body
+
+
 class _FakeGraphManager:
     """Stub do Neo4j manager pra testes que não precisam de DB real."""
     def get_subgraph(self, *args, **kwargs):

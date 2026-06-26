@@ -23,6 +23,8 @@ class CheckFraudEmailTransform(Transform):
         "Consulta fontes de threat intel e retorna IPs/dispositivos "
         "associados a acessos suspeitos do e-mail."
     )
+    service_name = "emailrep"
+    service_display = "EmailRep.io"
 
     def run(self, entity: Entity) -> TransformResult:
         if entity.type != "Email":
