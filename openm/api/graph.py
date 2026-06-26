@@ -1,4 +1,4 @@
-from flask import Blueprint, jsonify, request
+from flask import Blueprint, g, jsonify, request
 from pydantic import BaseModel, ValidationError
 
 from openm.core.audit import log_action, ACTION_EDGE_CREATE, ACTION_EDGE_DELETE
@@ -49,16 +49,24 @@ def create_edge():
         return jsonify({"error": exc.errors()}), 400
 
     gm = get_graph_manager()
-    gm.create_relationship(
+    is_admin = getattr(g, "role", None) == "admin"
+    created = gm.create_relationship(
         from_id=payload.from_id,
         to_id=payload.to_id,
         rel_type=payload.rel_type,
         properties=payload.properties or {},
+        user_id=g.user.id,
+        is_admin=is_admin,
     )
+    if not created:
+        # 404 cobre: pelo menos uma ponta não existe OU não pertence ao user
+        err = "Entidade de origem/destino não encontrada ou sem permissão"
+        return jsonify({"error": err}), 404
     log_action(
         ACTION_EDGE_CREATE,
         target_type="relationship",
         target_id=f"{payload.from_id}->{payload.to_id}",
+        user_id=g.user.id,
         metadata={
             "from_id": payload.from_id,
             "to_id": payload.to_id,
@@ -81,12 +89,21 @@ def delete_edge(relationship_id: str):
     DELETE /api/edge/<id>
 
     Remove um vínculo pelo id de elemento do Neo4j.
+    Bloqueia cross-user com 404 (issue #38 — anti-enumeração): se
+    nenhuma das pontas pertence ao user, retorna 404 mesmo que a
+    relação exista.
     """
     gm = get_graph_manager()
-    gm.delete_relationship(relationship_id)
+    is_admin = getattr(g, "role", None) == "admin"
+    deleted = gm.delete_relationship(
+        relationship_id, user_id=g.user.id, is_admin=is_admin,
+    )
+    if not deleted:
+        return jsonify({"error": "Vínculo não encontrado"}), 404
     log_action(
         ACTION_EDGE_DELETE,
         target_type="relationship",
         target_id=relationship_id,
+        user_id=g.user.id,
     )
     return jsonify({"message": "Vínculo removido", "id": relationship_id}), 200

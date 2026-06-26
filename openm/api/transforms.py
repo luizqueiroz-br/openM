@@ -2,7 +2,7 @@ from flask import Blueprint, g, jsonify, request
 
 from openm.core.auth import require_auth, require_role
 from openm.core.audit import log_action, ACTION_TRANSFORM_RUN
-from openm.core.entity import ENTITY_CLASSES, Entity  # noqa: F401  (Entity usado em runtime)
+from openm.core.entity import ENTITY_CLASSES
 from openm.core.transform import TransformRegistry
 from openm.utils.neo4j_client import get_graph_manager
 
@@ -17,7 +17,8 @@ def list_transforms(entity_type: str):
 
     Lista transforms registrados compatíveis com o tipo de entidade.
     """
-    return jsonify({"transforms": TransformRegistry.list_for_type(entity_type)})
+    transforms = TransformRegistry.list_for_type(entity_type)
+    return jsonify({"transforms": transforms})
 
 
 @transforms_bp.route("/run_transform", methods=["POST"])
@@ -40,10 +41,12 @@ def run_transform():
 
     transform_class = TransformRegistry.get(transform_name)
     if not transform_class:
-        return jsonify({"error": f"Transform desconhecido: {transform_name}"}), 400
+        msg = f"Transform desconhecido: {transform_name}"
+        return jsonify({"error": msg}), 400
 
-    # A entidade de entrada pode vir completa no payload ou ser buscada no Neo4j.
-    # Para simplificar e manter stateless, reconstruímos a partir do payload.
+    # A entidade de entrada pode vir completa no payload ou ser buscada
+    # no Neo4j. Para simplificar e manter stateless, reconstruímos a
+    # partir do payload.
     entity_type = data.get("entity_type")
     value = data.get("value")
     properties = data.get("properties", {})
@@ -53,12 +56,14 @@ def run_transform():
 
     entity_class = ENTITY_CLASSES.get(entity_type)
     if not entity_class:
-        return jsonify({"error": f"Tipo de entidade desconhecido: {entity_type}"}), 400
+        msg = f"Tipo de entidade desconhecido: {entity_type}"
+        return jsonify({"error": msg}), 400
 
     entity = entity_class(
         value=value,
         properties=properties,
         entity_id=entity_id,
+        created_by_user_id=g.user.id,
     )
 
     transform = transform_class()
@@ -67,20 +72,32 @@ def run_transform():
     gm = get_graph_manager()
     gm.merge_entity(entity)
 
+    # Admin não precisa checar ownership; para analyst, ele acabou de
+    # tornar-se dono da entidade de input. As entidades resultantes
+    # também recebem o user_id do executor.
+    is_admin = getattr(g, "role", None) == "admin"
+    owner_id = None if is_admin else g.user.id
+
     new_entities_count = 0
     for new_entity in result.entities:
+        # Setar ownership do executor nas entidades resultantes do transform
+        new_entity.created_by_user_id = owner_id
         gm.merge_entity(new_entity)
         new_entities_count += 1
 
     rels = []
     for rel in result.relationships:
-        gm.create_relationship(
+        # Ownership de edge: pelo menos uma ponta pertence ao user (ou admin)
+        created = gm.create_relationship(
             from_id=rel["from_id"],
             to_id=rel["to_id"],
             rel_type=rel["type"],
             properties=rel.get("properties", {}),
+            user_id=owner_id,
+            is_admin=is_admin,
         )
-        rels.append(rel)
+        if created:
+            rels.append(rel)
 
     # Auditoria: execução de transform. Metadado leve (contagens) — sem
     # expor valores das entidades resultantes (podem ser PII / IOC sensível).

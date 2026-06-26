@@ -31,7 +31,8 @@ class UpdateEntityPayload(BaseModel):
 
 def _extract_properties(data: dict) -> dict:
     """Extrai propriedades extras do payload, excluindo type e value."""
-    return {k: v for k, v in data.items() if k not in ("type", "value", "id", "entity_id")}
+    excluded = ("type", "value", "id", "entity_id")
+    return {k: v for k, v in data.items() if k not in excluded}
 
 
 @entities_bp.route("/entity", methods=["POST"])
@@ -52,10 +53,15 @@ def create_entity():
 
     entity_class = ENTITY_CLASSES.get(payload.type)
     if not entity_class:
-        return jsonify({"error": f"Tipo de entidade desconhecido: {payload.type}"}), 400
+        msg = f"Tipo de entidade desconhecido: {payload.type}"
+        return jsonify({"error": msg}), 400
 
     properties = _extract_properties(data)
-    entity = entity_class(value=payload.value, properties=properties)
+    entity = entity_class(
+        value=payload.value,
+        properties=properties,
+        created_by_user_id=g.user.id,
+    )
 
     gm = get_graph_manager()
     gm.merge_entity(entity)
@@ -85,6 +91,7 @@ def update_entity(entity_id: str):
     PATCH /api/entity/<id>
 
     Atualiza propriedades dinâmicas de uma entidade existente.
+    Bloqueia cross-user com 404 (issue #38 — anti-enumeração).
     """
     data = request.get_json(silent=True) or {}
     try:
@@ -93,10 +100,15 @@ def update_entity(entity_id: str):
         return jsonify({"error": exc.errors()}), 400
 
     gm = get_graph_manager()
-    if gm.get_entity(entity_id) is None:
+    is_admin = getattr(g, "role", None) == "admin"
+    updated = gm.update_entity_properties(
+        entity_id, payload.properties,
+        user_id=g.user.id, is_admin=is_admin,
+    )
+    if not updated:
+        # 404 cobre: não existe OU não é dono (anti-enumeração)
         return jsonify({"error": "Entidade não encontrada"}), 404
 
-    gm.update_entity_properties(entity_id, payload.properties)
     # Auditoria: atualização de propriedades. Não logamos valores (podem
     # conter dados sensíveis), só as chaves alteradas.
     log_action(
@@ -119,9 +131,15 @@ def delete_entity(entity_id: str):
     DELETE /api/entity/<id>
 
     Remove uma entidade e seus relacionamentos adjacentes.
+    Bloqueia cross-user com 404 (issue #38 — anti-enumeração).
     """
     gm = get_graph_manager()
-    gm.delete_entity(entity_id)
+    is_admin = getattr(g, "role", None) == "admin"
+    deleted = gm.delete_entity(
+        entity_id, user_id=g.user.id, is_admin=is_admin,
+    )
+    if not deleted:
+        return jsonify({"error": "Entidade não encontrada"}), 404
     # Auditoria: deleção de entidade (incluindo relacionamentos adjacentes).
     log_action(
         action=ACTION_ENTITY_DELETE,

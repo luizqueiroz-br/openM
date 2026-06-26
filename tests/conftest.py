@@ -11,7 +11,15 @@ from openm.models.user import User
 
 
 class _FakeGraphManager:
-    """Stub do Neo4j manager — evita precisar de Neo4j real nos testes."""
+    """Stub do Neo4j manager — evita precisar de Neo4j real nos testes.
+
+    Para a checagem de ownership (issue #38), simula que qualquer entity
+    cujo id começa com "ok" é "do user" (legacy, sem dono específico).
+    Outros IDs (a, b, abc, ...) também simulam entidades legadas.
+    """
+
+    # IDs que simulam entidades existentes (passam de is_owned_by=True).
+    _OK_IDS = ("ok", "a", "b", "abc")
 
     def get_subgraph(self, *args, **kwargs):
         return {"elements": []}
@@ -23,20 +31,27 @@ class _FakeGraphManager:
             return {"id": entity_id, "type": "Domain", "value": "x.com"}
         return None
 
+    def is_owned_by(self, entity_id, user_id=None, is_admin=False, *a, **k):
+        if is_admin:
+            return True
+        if not isinstance(entity_id, str):
+            return False
+        return entity_id.startswith(self._OK_IDS)
+
     def create_relationship(self, *args, **kwargs):
-        return {}
+        return True
 
     def delete_relationship(self, *args, **kwargs):
-        return None
+        return True
 
     def merge_entity(self, *args, **kwargs):
         return None
 
     def update_entity_properties(self, *args, **kwargs):
-        return None
+        return True
 
     def delete_entity(self, *args, **kwargs):
-        return None
+        return True
 
 
 @pytest.fixture(autouse=True)

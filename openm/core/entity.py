@@ -19,11 +19,13 @@ class Entity:
         value: str,
         properties: Optional[Dict[str, Any]] = None,
         entity_id: Optional[str] = None,
+        created_by_user_id: Optional[int] = None,
     ):
         self.id = entity_id or str(uuid.uuid4())
         self.type = self.entity_type
         self.value = value
         self.properties = properties or {}
+        self.created_by_user_id = created_by_user_id
         self.created_at = datetime.now(timezone.utc).isoformat()
         self.updated_at = self.created_at
 
@@ -34,6 +36,7 @@ class Entity:
             "type": self.type,
             "value": self.value,
             "properties": self.properties,
+            "created_by_user_id": self.created_by_user_id,
             "created_at": self.created_at,
             "updated_at": self.updated_at,
         }

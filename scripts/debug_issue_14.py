@@ -48,19 +48,22 @@ class _FakeGraphManager:
         return None
 
     def create_relationship(self, *args, **kwargs):
-        return {}
+        return True
 
     def delete_relationship(self, *args, **kwargs):
-        return None
+        return True
 
     def merge_entity(self, *args, **kwargs):
         return None
 
+    def is_owned_by(self, *args, **kwargs):
+        return True
+
     def update_entity_properties(self, *args, **kwargs):
-        return None
+        return True
 
     def delete_entity(self, *args, **kwargs):
-        return None
+        return True
 
 
 # Monkeypatch Neo4j ANTES de criar o app

@@ -55,15 +55,21 @@ class GraphManager:
         genérica `Entity`. Propriedades dinâmicas são serializadas como JSON
         para evitar problemas de tipo no Cypher.
 
+        Se `entity.created_by_user_id` estiver definido, é persistido no nó
+        para posterior checagem de ownership (issue #38).
+
         Cypher:
             MERGE (n:Entity:<Tipo> {id: $id})
             SET n.value = $value,
                 n.type = $type,
                 n.properties = $properties_json,
+                n.created_by_user_id = $user_id,
                 n.updated_at = datetime()
         """
         if not self._available:
-            logger.warning("Tentativa de merge sem Neo4j disponível: %s", entity)
+            logger.warning(
+                "Tentativa de merge sem Neo4j disponível: %s", entity
+            )
             return
         label = entity.type
         query = (
@@ -71,6 +77,7 @@ class GraphManager:
             "SET n.value = $value, "
             "n.type = $type, "
             "n.properties = $properties_json, "
+            "n.created_by_user_id = $user_id, "
             "n.updated_at = datetime()"
         )
         with self.driver.session() as session:
@@ -80,7 +87,40 @@ class GraphManager:
                 value=entity.value,
                 type=entity.type,
                 properties_json=json.dumps(entity.properties),
+                user_id=entity.created_by_user_id,
             )
+
+    def is_owned_by(
+        self, entity_id: str, user_id: int, is_admin: bool = False
+    ) -> bool:
+        """
+        Retorna True se a entidade pertence ao usuário (issue #38).
+
+        Regras:
+        - Admin (`is_admin=True`) sempre pode (bypass).
+        - Entidade legada (sem `created_by_user_id`) → True para todos.
+        - Dono: True.
+        - Outros: False.
+
+        Retorna False também se a entidade não existir.
+        """
+        if not self._available:
+            return False
+        if is_admin:
+            return True
+        query = (
+            "MATCH (n:Entity {id: $id}) "
+            "RETURN n.created_by_user_id AS owner_id"
+        )
+        with self.driver.session() as session:
+            result = session.run(query, id=entity_id).single()
+            if not result:
+                return False
+            owner_id = result["owner_id"]
+            if owner_id is None:
+                # Entidade legada: visível para todos os autenticados.
+                return True
+            return int(owner_id) == int(user_id)
 
     def create_relationship(
         self,
@@ -88,9 +128,17 @@ class GraphManager:
         to_id: str,
         rel_type: str,
         properties: Optional[Dict[str, Any]] = None,
-    ) -> None:
+        user_id: Optional[int] = None,
+        is_admin: bool = False,
+    ) -> bool:
         """
         Cria (ou atualiza) um relacionamento tipado entre duas entidades.
+
+        Se `user_id` for fornecido, verifica que o usuário é dono de pelo
+        menos uma das pontas (issue #38). Admin pode criar qualquer edge.
+        Entidades legadas (sem user_id) são tratadas como públicas.
+
+        Retorna False se o usuário não puder criar o edge.
 
         Cypher:
             MATCH (a:Entity {id: $from_id}), (b:Entity {id: $to_id})
@@ -98,11 +146,25 @@ class GraphManager:
             SET r += $properties, r.updated_at = datetime()
         """
         properties = properties or {}
+        # Se Neo4j indisponível, pula checagem (compat com merge_entity)
+        # e tenta o CREATE — que falhará silenciosamente em driver.session().
+        if user_id is not None and not is_admin and self._available:
+            if not (
+                self.is_owned_by(from_id, user_id)
+                or self.is_owned_by(to_id, user_id)
+            ):
+                return False
         query = (
             "MATCH (a:Entity {id: $from_id}), (b:Entity {id: $to_id}) "
             f"MERGE (a)-[r:{rel_type}]->(b) "
             "SET r += $properties, r.updated_at = datetime()"
         )
+        if not self._available:
+            logger.warning(
+                "Tentativa de criar edge sem Neo4j disponível: %s->%s",
+                from_id, to_id,
+            )
+            return True
         with self.driver.session() as session:
             session.run(
                 query,
@@ -110,6 +172,7 @@ class GraphManager:
                 to_id=to_id,
                 properties=properties,
             )
+        return True
 
     def get_subgraph(
         self, center_id: str, depth: int = 2
@@ -168,7 +231,9 @@ class GraphManager:
         """Converte um nó Neo4j para elemento Cytoscape.js."""
         props = node.get("properties", "{}")
         try:
-            parsed_props = json.loads(props) if isinstance(props, str) else props
+            parsed_props = (
+                json.loads(props) if isinstance(props, str) else props
+            )
         except json.JSONDecodeError:
             parsed_props = {}
 
@@ -217,33 +282,86 @@ class GraphManager:
             return self._node_to_cytoscape(node)
 
     def update_entity_properties(
-        self, entity_id: str, properties: Dict[str, Any]
+        self, entity_id: str, properties: Dict[str, Any], user_id: int,
+        is_admin: bool = False
     ) -> bool:
-        """Atualiza propriedades dinâmicas de uma entidade (merge)."""
+        """
+        Atualiza propriedades dinâmicas de uma entidade (merge).
+
+        Retorna False se a entidade não existir OU se o usuário não for
+        o dono (issue #38). Admin pode atualizar qualquer entidade.
+        """
         if not self._available:
             return True
+        if not self.is_owned_by(entity_id, user_id, is_admin=is_admin):
+            return False
         query = (
             "MATCH (n:Entity {id: $id}) "
             "SET n += $props, n.updated_at = datetime() "
             "RETURN n"
         )
         with self.driver.session() as session:
-            result = session.run(query, id=entity_id, props=properties).single()
+            result = session.run(
+                query, id=entity_id, props=properties
+            ).single()
             return result is not None
 
-    def delete_entity(self, entity_id: str) -> bool:
-        """Remove um nó e seus relacionamentos adjacentes."""
+    def delete_entity(
+        self, entity_id: str, user_id: int, is_admin: bool = False
+    ) -> bool:
+        """
+        Remove um nó e seus relacionamentos adjacentes.
+
+        Retorna False se a entidade não existir OU se o usuário não for
+        o dono (issue #38). Admin pode deletar qualquer entidade.
+        """
         if not self._available:
             return True
+        if not self.is_owned_by(entity_id, user_id, is_admin=is_admin):
+            return False
         query = "MATCH (n:Entity {id: $id}) DETACH DELETE n"
         with self.driver.session() as session:
             session.run(query, id=entity_id)
             return True
 
-    def delete_relationship(self, relationship_id: str) -> bool:
-        """Remove um relacionamento pelo id do elemento Neo4j."""
+    def delete_relationship(
+        self, relationship_id: str, user_id: int, is_admin: bool = False
+    ) -> bool:
+        """
+        Remove um relacionamento pelo id do elemento Neo4j.
+
+        Retorna False se a relação não existir OU se nenhuma das pontas
+        pertencer ao usuário (issue #38). Admin pode deletar qualquer
+        relação. Retorna também False se as pontas forem legadas e
+        pertencerem a outro user.
+        """
         if not self._available:
             return True
+        if is_admin:
+            query = "MATCH ()-[r]->() WHERE elementId(r) = $id DELETE r"
+            with self.driver.session() as session:
+                session.run(query, id=relationship_id)
+                return True
+
+        # Pega os ids dos nós das duas pontas
+        query = (
+            "MATCH (a)-[r]->(b) WHERE elementId(r) = $id "
+            "RETURN a.id AS from_id, b.id AS to_id"
+        )
+        with self.driver.session() as session:
+            record = session.run(query, id=relationship_id).single()
+            if not record:
+                return False
+            from_id = record["from_id"]
+            to_id = record["to_id"]
+
+        # Pelo menos uma ponta precisa ser do usuário (ou ser legacy/null)
+        if not (
+            self.is_owned_by(from_id, user_id)
+            or self.is_owned_by(to_id, user_id)
+        ):
+            return False
+
         query = "MATCH ()-[r]->() WHERE elementId(r) = $id DELETE r"
         with self.driver.session() as session:
             session.run(query, id=relationship_id)

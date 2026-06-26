@@ -30,11 +30,12 @@ class _FakeGraphManager:
             ]
         }
     def get_entity(self, *a, **k): return None
-    def create_relationship(self, *a, **k): return {}
-    def delete_relationship(self, *a, **k): return None
+    def create_relationship(self, *a, **k): return True
+    def delete_relationship(self, *a, **k): return True
     def merge_entity(self, *a, **k): return None
-    def update_entity_properties(self, *a, **k): return None
-    def delete_entity(self, *a, **k): return None
+    def is_owned_by(self, *a, **k): return True
+    def update_entity_properties(self, *a, **k): return True
+    def delete_entity(self, *a, **k): return True
 
 
 # Monkeypatch ANTES do app
