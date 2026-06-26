@@ -67,7 +67,7 @@ def api_prot_token(api_prot_app):
 class _FakeGraphManager:
     """Stub do Neo4j manager pra testes que não precisam de DB real."""
     def get_subgraph(self, *args, **kwargs):
-        return {"elements": []}
+        return {"nodes": [], "edges": []}
 
     def get_entity(self, *args, **kwargs):
         return None

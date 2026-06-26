@@ -173,7 +173,7 @@ def mock_graph(monkeypatch):
             return ok
 
         def get_subgraph(self, *a, **k):
-            return {"elements": []}
+            return {"nodes": [], "edges": []}
 
     mock = _MockGraphManager()
 
@@ -1125,8 +1125,8 @@ class TestGraphManagerUnit:
 
     # ----- get_subgraph -----
 
-    def test_get_subgraph_returns_elements(self):
-        """get_subgraph parseia nodes/rels do Neo4j."""
+    def test_get_subgraph_returns_nodes_edges_wrapper(self):
+        """get_subgraph retorna wrapper {nodes, edges} (issue #19)."""
 
         class _Node:
             def __init__(self, id_, value, type_):
@@ -1191,10 +1191,14 @@ class TestGraphManagerUnit:
         gm._available = True
         gm.driver = _Sub_Driver()
         result = gm.get_subgraph("example.com", depth=2)
-        assert "elements" in result
-        assert len(result["elements"]["nodes"]) == 2
-        assert len(result["elements"]["edges"]) == 1
-        assert result["elements"]["edges"][0]["data"]["label"] == "RESOLVES_TO"
+        # Contrato estável (issue #19): wrapper {nodes, edges}
+        assert "nodes" in result
+        assert "edges" in result
+        # Garante que o legado "elements" wrapper NÃO está mais presente
+        assert "elements" not in result
+        assert len(result["nodes"]) == 2
+        assert len(result["edges"]) == 1
+        assert result["edges"][0]["data"]["label"] == "RESOLVES_TO"
 
     def test_get_subgraph_clamps_depth(self):
         """get_subgraph limita depth entre 1 e 5."""

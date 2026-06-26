@@ -14,7 +14,10 @@ def get_subgraph(entity_id: str):
     """
     GET /api/subgraph/<entity_id>?depth=2
 
-    Retorna subgrafo no formato Cytoscape.js a partir do nó central.
+    Retorna subgrafo a partir do nó central no formato estável
+    ``{"nodes": [...], "edges": [...]}`` (mesmo contrato do
+    ``graph_snapshot`` das investigations). Cada elemento já vem no
+    formato Cytoscape.js (``{"data": {...}}``). Issue #19.
     """
     try:
         depth = int(request.args.get("depth", 2))
