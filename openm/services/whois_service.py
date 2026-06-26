@@ -1081,7 +1081,7 @@ RE_TECH_CONTACT = re.compile(
     re.IGNORECASE,
 )
 RE_REGISTRANT_ORG = re.compile(
-    r"(?:Registrant\s*Organization|OrgName)[:\s]+([^\n]+)",
+    r"(?:Registrant\s*Organization|OrgName|owner:)[:\s]+([^\n]+)",
     re.IGNORECASE,
 )
 RE_REGISTRANT_EMAIL = re.compile(
@@ -1103,6 +1103,23 @@ RE_ORG = re.compile(
 RE_COUNTRY = re.compile(
     r"(?:Country)[:\s]+([^\n]+)",
     re.IGNORECASE,
+)
+# registro.br specific patterns
+RE_BR_OWNER = re.compile(
+    r"^owner:\s*([^\n]+)",
+    re.IGNORECASE | re.MULTILINE,
+)
+RE_BR_RESPONSIBLE = re.compile(
+    r"^responsible:\s*([^\n]+)",
+    re.IGNORECASE | re.MULTILINE,
+)
+RE_BR_EMAIL = re.compile(
+    r"^e-mail:\s*([^\s\n@]+@[^\s\n]+)",
+    re.IGNORECASE | re.MULTILINE,
+)
+RE_BR_COUNTRY = re.compile(
+    r"^country:\s*([^\n]+)",
+    re.IGNORECASE | re.MULTILINE,
 )
 RE_STATUS = re.compile(
     r"(?:Domain\s*Status|Status)[:\s]+(\S+)",
@@ -1176,6 +1193,25 @@ def _query_whois_raw(domain: str, server: str, timeout: float = 10.0) -> Optiona
         return None
 
 
+def _is_garbage_value(value: str) -> bool:
+    """
+    Detect garbage values that are not real WHOIS data.
+
+    Filters out:
+    - Lines starting with '%' (WHOIS comments/metadata)
+    - Empty/whitespace-only strings
+    - Strings that look like WHOIS protocol headers
+    """
+    if not value or not value.strip():
+        return True
+    stripped = value.strip()
+    if stripped.startswith("%"):
+        return True
+    if stripped.lower().startswith("this query returned"):
+        return True
+    return False
+
+
 def _parse_whois_response(raw: str, domain: str) -> Dict[str, Any]:
     """
     Parse a raw WHOIS response into structured data.
@@ -1239,16 +1275,45 @@ def _parse_whois_response(raw: str, domain: str) -> Dict[str, Any]:
     if match:
         result["dnssec"] = match.group(1).strip()
 
-    # Registrant
+    # Registrant — generic patterns
     match = RE_REGISTRANT_ORG.search(raw)
     if match:
-        result["registrant_org"] = match.group(1).strip()
+        value = match.group(1).strip()
+        if not _is_garbage_value(value):
+            result["registrant_org"] = value
+
+    match = RE_REGISTRANT.search(raw)
+    if match:
+        value = match.group(1).strip()
+        if not _is_garbage_value(value):
+            result["registrant_name"] = value
 
     match = RE_REGISTRANT_EMAIL.search(raw)
     if match:
         result["registrant_email"] = match.group(1).strip()
 
     match = RE_COUNTRY.search(raw)
+    if match:
+        result["registrant_country"] = match.group(1).strip()
+
+    # Registrant — registro.br specific patterns
+    match = RE_BR_OWNER.search(raw)
+    if match:
+        value = match.group(1).strip()
+        if not _is_garbage_value(value):
+            result["registrant_org"] = value
+
+    match = RE_BR_RESPONSIBLE.search(raw)
+    if match:
+        value = match.group(1).strip()
+        if not _is_garbage_value(value):
+            result["registrant_name"] = value
+
+    match = RE_BR_EMAIL.search(raw)
+    if match:
+        result["registrant_email"] = match.group(1).strip()
+
+    match = RE_BR_COUNTRY.search(raw)
     if match:
         result["registrant_country"] = match.group(1).strip()
 
@@ -1270,11 +1335,13 @@ def _parse_whois_response(raw: str, domain: str) -> Dict[str, Any]:
     if match:
         result["tech_name"] = match.group(1).strip()
 
-    # Organization (generic)
+    # Organization (generic fallback)
     if not result["registrant_org"]:
         match = RE_ORG.search(raw)
         if match:
-            result["registrant_org"] = match.group(1).strip()
+            value = match.group(1).strip()
+            if not _is_garbage_value(value):
+                result["registrant_org"] = value
 
     return result
 
