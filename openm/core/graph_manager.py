@@ -188,6 +188,12 @@ class GraphManager:
         porque investigações gravam ``root_entity_id`` usando o value (que é
         o que o usuário vê), mas o id interno do Neo4j é um UUID.
 
+        Retorna um wrapper ``{"nodes": [...], "edges": [...]}`` no mesmo
+        formato usado pelas investigations (``graph_snapshot``) e pelo
+        ``Graph.loadSnapshot`` do frontend. Contrato estável, documentado
+        para OpenAPI (#10). Cada elemento já vem no formato Cytoscape.js
+        (``{"data": {...}}``).
+
         Cypher:
             MATCH path = (center:Entity)-[r*1..depth]-(n)
             WHERE center.id = $center_id OR center.value = $center_id
@@ -220,10 +226,8 @@ class GraphManager:
                     edges_map[edge_id] = self._rel_to_cytoscape(rel)
 
         return {
-            "elements": {
-                "nodes": list(nodes_map.values()),
-                "edges": list(edges_map.values()),
-            }
+            "nodes": list(nodes_map.values()),
+            "edges": list(edges_map.values()),
         }
 
     @staticmethod

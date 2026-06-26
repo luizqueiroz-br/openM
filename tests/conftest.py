@@ -22,7 +22,7 @@ class _FakeGraphManager:
     _OK_IDS = ("ok", "a", "b", "abc")
 
     def get_subgraph(self, *args, **kwargs):
-        return {"elements": []}
+        return {"nodes": [], "edges": []}
 
     def get_entity(self, entity_id, *args, **kwargs):
         # IDs começando com "ok" simulam entidades existentes — útil para
