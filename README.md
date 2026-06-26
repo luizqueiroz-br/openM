@@ -115,6 +115,34 @@ pytest
 
 Cobertura: 78+ testes (audit log, auth, RBAC, entidades, transforms, API).
 
+### Testes E2E (Neo4j + Postgres reais)
+
+Testes end-to-end que validam o flow completo contra backend real
+(Postgres + Neo4j via Docker). Mais lentos e **skipped por padrão**
+(marcados com `@pytest.mark.e2e` + `addopts = -m "not e2e"`).
+
+**Setup:**
+
+```bash
+make db-up                                   # sobe Postgres + Neo4j
+docker compose exec postgres createdb -U openm openm_e2e
+```
+
+**Rodar:**
+
+```bash
+make test-e2e                                # roda só os E2E (10 testes)
+# ou manualmente:
+TEST_DATABASE_URL=postgresql://openm:openm123@localhost:5432/openm_e2e \
+NEO4J_URI=bolt://localhost:7687 \
+NEO4J_USER=neo4j \
+NEO4J_PASSWORD=openm123 \
+pytest -v -m e2e tests/e2e/
+```
+
+O `make test` (sem `-m e2e`) pula esses testes automaticamente — você
+não precisa de Docker rodando para o suite de unit/integration.
+
 ---
 
 ## 🗂 Estrutura

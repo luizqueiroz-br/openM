@@ -55,12 +55,21 @@ class _FakeGraphManager:
 
 
 @pytest.fixture(autouse=True)
-def _mock_neo4j(monkeypatch):
+def _mock_neo4j(request, monkeypatch):
     """Mocka get_graph_manager em todos os blueprints que usam Neo4j.
 
     Necessário porque os endpoints chamam Neo4j e os testes rodam sem o
     serviço real. O pattern é o mesmo usado em test_api_protected.py.
+
+    Bypass para E2E (issue #18): testes marcados com ``@pytest.mark.e2e``
+    usam Neo4j real (Postgres + Neo4j via docker-compose) e portanto
+    NÃO devem ter o get_graph_manager monkeypatched.
     """
+    # Bypass para testes E2E: usa Neo4j real
+    if request.node.get_closest_marker("e2e"):
+        yield
+        return
+
     def fake(*args, **kwargs):
         return _FakeGraphManager()
 
@@ -71,6 +80,8 @@ def _mock_neo4j(monkeypatch):
         "openm.api.transforms",
     ]:
         monkeypatch.setattr(f"{mod_name}.get_graph_manager", fake)
+
+    yield
 
 
 class TestConfig(Config):
