@@ -261,7 +261,7 @@ def test_whois_transform_domain():
     # Check registrant
     registrant = [e for e in person_entities if e.properties.get("role") == "registrant"]
     assert len(registrant) == 1
-    assert registrant[0].value == "Example Organization"
+    assert registrant[0].value == "John Doe"  # name takes priority over org
 
     # Check admin
     admin = [e for e in person_entities if e.properties.get("role") == "admin_contact"]
@@ -1216,3 +1216,130 @@ def test_whois_service_investigate_domain_no_meaningful_data(monkeypatch):
 
     # Should fall back to simulated data (no registrar, dates, nameservers, or contacts)
     assert result["source"] == "whois_simulated"
+
+
+# ---------------------------------------------------------------------------
+# Tests for registro.br WHOIS format parsing
+# ---------------------------------------------------------------------------
+
+MOCK_BR_WHOIS_RAW = """
+% 2026-06-26 11:13:02 (BRT -03:00)
+% This query returned 1 object
+
+domain:      exemplo.br
+owner:       D. M. I.
+ownerid:     00.000.000/0001-00
+responsible: Fulano de Tal
+country:     BR
+owner-c:     DEMI
+admin-c:     DEMI
+tech-c:      DEMI
+nserver:     ns1.exemplo.br
+nserver:     ns2.exemplo.br
+e-mail:      demi@registro.br
+created:     20000101 #123
+changed:     20250625
+expires:     20270101
+status:      published
+"""
+
+
+def test_whois_service_parse_br_format():
+    """Test _parse_whois_response with registro.br format."""
+    from openm.services.whois_service import _parse_whois_response
+
+    result = _parse_whois_response(MOCK_BR_WHOIS_RAW, "exemplo.br")
+
+    assert result["domain"] == "exemplo.br"
+    assert result["registrant_org"] == "D. M. I."
+    assert result["registrant_name"] == "Fulano de Tal"
+    assert result["registrant_email"] == "demi@registro.br"
+    assert result["registrant_country"] == "BR"
+    assert "ns1.exemplo.br" in result["nameservers"]
+    assert "ns2.exemplo.br" in result["nameservers"]
+
+
+def test_whois_service_parse_br_format_no_garbage():
+    """Test that registro.br comment lines are NOT parsed as data."""
+    from openm.services.whois_service import _parse_whois_response
+
+    result = _parse_whois_response(MOCK_BR_WHOIS_RAW, "exemplo.br")
+
+    # Ensure garbage lines are NOT captured as values
+    assert result["registrant_org"] != "% This query returned 1 object"
+    assert result["registrant_name"] != "% This query returned 1 object"
+    assert result["registrant_org"] != "% 2026-06-26 11:13:02 (BRT -03:00)"
+    assert result["registrant_name"] != "% 2026-06-26 11:13:02 (BRT -03:00)"
+
+
+def test_is_garbage_value():
+    """Test _is_garbage_value function."""
+    from openm.services.whois_service import _is_garbage_value
+
+    # Garbage values
+    assert _is_garbage_value("") is True
+    assert _is_garbage_value("   ") is True
+    assert _is_garbage_value(None) is True
+    assert _is_garbage_value("% This query returned 1 object") is True
+    assert _is_garbage_value("% 2026-06-26 11:13:02 (BRT -03:00)") is True
+    assert _is_garbage_value("this query returned 1 object") is True
+
+    # Valid values
+    assert _is_garbage_value("D. M. I.") is False
+    assert _is_garbage_value("Fulano de Tal") is False
+    assert _is_garbage_value("demi@registro.br") is False
+    assert _is_garbage_value("BR") is False
+
+
+def test_clean_value():
+    """Test _clean_value function in WhoisTransform."""
+    from openm.transforms.whois import _clean_value
+
+    # Garbage → None
+    assert _clean_value("") is None
+    assert _clean_value("   ") is None
+    assert _clean_value(None) is None
+    assert _clean_value("% This query returned 1 object") is None
+    assert _clean_value("% 2026-06-26 11:13:02 (BRT -03:00)") is None
+    assert _clean_value("this query returned 1 object") is None
+
+    # Valid values
+    assert _clean_value("D. M. I.") == "D. M. I."
+    assert _clean_value("Fulano de Tal") == "Fulano de Tal"
+    assert _clean_value("demi@registro.br") == "demi@registro.br"
+    assert _clean_value("BR") == "BR"
+    assert _clean_value("  BR  ") == "BR"
+
+
+def test_whois_transform_br_format():
+    """Test WhoisTransform with registro.br WHOIS data."""
+    from openm.transforms.whois import WhoisTransform
+    from openm.services.whois_service import _parse_whois_response
+
+    br_data = _parse_whois_response(MOCK_BR_WHOIS_RAW, "exemplo.br")
+    br_data["source"] = "whois"
+
+    domain = Domain(value="exemplo.br", properties={})
+    transform = WhoisTransform()
+
+    with patch(
+        "openm.transforms.whois.WhoisService.investigate_domain",
+        return_value=br_data,
+    ):
+        result = transform.run(domain)
+
+    # Should have: 1 Domain + 1 registrant = 2 entities (no admin/tech/registrar in .br format)
+    assert len(result.entities) >= 2
+
+    # Check registrant Person
+    person_entities = [e for e in result.entities if e.type == "Person"]
+    registrant = [e for e in person_entities if e.properties.get("role") == "registrant"]
+    assert len(registrant) == 1
+    assert registrant[0].value == "Fulano de Tal"  # name preferred over org
+    assert registrant[0].properties["email"] == "demi@registro.br"
+    assert registrant[0].properties["organization"] == "D. M. I."
+    assert registrant[0].properties["country"] == "BR"
+
+    # Check relationship
+    rel_types = [r["type"] for r in result.relationships]
+    assert "REGISTERED_BY" in rel_types

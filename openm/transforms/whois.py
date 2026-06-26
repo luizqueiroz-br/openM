@@ -1,9 +1,30 @@
 from datetime import datetime, timezone
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Optional
 
 from openm.core.entity import Domain, Entity, Person
 from openm.core.transform import Transform, TransformResult
 from openm.services.whois_service import WhoisService
+
+
+def _clean_value(value: Optional[str]) -> Optional[str]:
+    """
+    Sanitize a WHOIS value, returning None for garbage data.
+
+    Filters out:
+    - None/empty strings
+    - Lines starting with '%' (WHOIS comments)
+    - WHOIS protocol metadata lines
+    """
+    if not value:
+        return None
+    stripped = value.strip()
+    if not stripped:
+        return None
+    if stripped.startswith("%"):
+        return None
+    if stripped.lower().startswith("this query returned"):
+        return None
+    return stripped
 
 
 @Transform.register
@@ -56,17 +77,21 @@ class WhoisTransform(Transform):
         entities.append(domain_entity)
 
         # Registrant as Person
-        registrant_name = whois_data.get("registrant_org") or whois_data.get("registrant_name")
-        registrant_email = whois_data.get("registrant_email")
-        if registrant_name or registrant_email:
-            registrant_value = registrant_name or registrant_email or f"registrant@{entity.value}"
+        registrant_name = _clean_value(whois_data.get("registrant_name"))
+        registrant_org = _clean_value(whois_data.get("registrant_org"))
+        registrant_email = _clean_value(whois_data.get("registrant_email"))
+        registrant_country = _clean_value(whois_data.get("registrant_country"))
+
+        if registrant_name or registrant_org or registrant_email:
+            # Prefer name, then org, then email as the Person value
+            registrant_value = registrant_name or registrant_org or registrant_email or f"registrant@{entity.value}"
             registrant = Person(
                 value=registrant_value,
                 properties={
                     "role": "registrant",
                     "email": registrant_email or "",
-                    "organization": whois_data.get("registrant_org", ""),
-                    "country": whois_data.get("registrant_country", ""),
+                    "organization": registrant_org or "",
+                    "country": registrant_country or "",
                     "source": whois_data.get("source", "whois"),
                     "checked_at": checked_at,
                 },
@@ -86,8 +111,9 @@ class WhoisTransform(Transform):
             )
 
         # Admin contact as Person
-        admin_name = whois_data.get("admin_name")
-        admin_email = whois_data.get("admin_email")
+        admin_name = _clean_value(whois_data.get("admin_name"))
+        admin_email = _clean_value(whois_data.get("admin_email"))
+        admin_org = _clean_value(whois_data.get("admin_org"))
         if admin_name or admin_email:
             admin_value = admin_name or admin_email or f"admin@{entity.value}"
             admin = Person(
@@ -95,7 +121,7 @@ class WhoisTransform(Transform):
                 properties={
                     "role": "admin_contact",
                     "email": admin_email or "",
-                    "organization": whois_data.get("admin_org", ""),
+                    "organization": admin_org or "",
                     "source": whois_data.get("source", "whois"),
                     "checked_at": checked_at,
                 },
@@ -115,8 +141,9 @@ class WhoisTransform(Transform):
             )
 
         # Tech contact as Person
-        tech_name = whois_data.get("tech_name")
-        tech_email = whois_data.get("tech_email")
+        tech_name = _clean_value(whois_data.get("tech_name"))
+        tech_email = _clean_value(whois_data.get("tech_email"))
+        tech_org = _clean_value(whois_data.get("tech_org"))
         if tech_name or tech_email:
             tech_value = tech_name or tech_email or f"tech@{entity.value}"
             tech = Person(
@@ -124,7 +151,7 @@ class WhoisTransform(Transform):
                 properties={
                     "role": "tech_contact",
                     "email": tech_email or "",
-                    "organization": whois_data.get("tech_org", ""),
+                    "organization": tech_org or "",
                     "source": whois_data.get("source", "whois"),
                     "checked_at": checked_at,
                 },
@@ -144,8 +171,8 @@ class WhoisTransform(Transform):
             )
 
         # Registrar as Person (if different from registrant)
-        registrar = whois_data.get("registrar")
-        if registrar and registrar != registrant_name:
+        registrar = _clean_value(whois_data.get("registrar"))
+        if registrar and registrar != registrant_name and registrar != registrant_org:
             registrar_entity = Person(
                 value=registrar,
                 properties={
