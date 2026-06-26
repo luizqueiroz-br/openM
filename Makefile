@@ -31,7 +31,7 @@ export
 endif
 
 .PHONY: help venv install db-up db-down db-logs db-status db-reset \
-        api api-shell test test-auth test-api test-issue14 lint debug clean reset \
+        api api-shell test test-e2e test-auth test-api test-issue14 lint debug clean reset \
         create-admin create-admin-cli create-admin-script
 
 help: ## Mostra esta ajuda
@@ -79,6 +79,19 @@ api-shell: ## Abre shell Flask
 
 test: ## Roda pytest suite completa
 	. $(VENV)/bin/activate && pytest -v
+
+test-e2e: ## Roda testes E2E (precisa Postgres + Neo4j rodando)
+	@echo "Verificando se Postgres + Neo4j estao rodando..."
+	@docker compose ps postgres neo4j 2>/dev/null | grep -qE "Up|running" || \
+		(echo "ERRO: rode 'make db-up' primeiro"; exit 1)
+	@docker compose exec -T postgres psql -U openm -d postgres -tAc "SELECT 1 FROM pg_database WHERE datname='openm_e2e'" 2>/dev/null | grep -q 1 || \
+		(echo "Criando DB openm_e2e..." && docker compose exec -T postgres createdb -U openm openm_e2e)
+	. $(VENV)/bin/activate && \
+		TEST_DATABASE_URL=postgresql://openm:openm123@localhost:5432/openm_e2e \
+		NEO4J_URI=bolt://localhost:7687 \
+		NEO4J_USER=neo4j \
+		NEO4J_PASSWORD=openm123 \
+		pytest -v -m e2e tests/e2e/
 
 test-auth: ## Roda só testes de auth
 	. $(VENV)/bin/activate && pytest tests/test_auth.py tests/test_auth_pages.py tests/test_auth_protection.py -v
