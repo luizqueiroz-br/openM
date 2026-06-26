@@ -831,7 +831,6 @@ def test_geoip_service_get_reader_alt_path_found(monkeypatch, tmp_path):
 
     # Mock isfile to return True for the first alt path
     alt_path = "/usr/local/share/GeoIP/GeoLite2-City.mmdb"
-    original_isfile = os.path.isfile
 
     def mock_isfile(path):
         if path == alt_path:
@@ -910,7 +909,12 @@ def test_geoip_service_lookup_success(monkeypatch):
     fake_response = {
         "country": {"iso_code": "US", "names": {"en": "United States"}},
         "city": {"names": {"en": "Mountain View"}},
-        "location": {"latitude": 37.422, "longitude": -122.084, "accuracy_radius": 10, "time_zone": "America/Los_Angeles"},
+        "location": {
+            "latitude": 37.422,
+            "longitude": -122.084,
+            "accuracy_radius": 10,
+            "time_zone": "America/Los_Angeles",
+        },
         "postal": {"code": "94043"},
         "continent": {"names": {"en": "North America"}},
         "subdivisions": [{"names": {"en": "California"}}],
