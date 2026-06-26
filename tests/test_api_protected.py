@@ -72,20 +72,23 @@ class _FakeGraphManager:
     def get_entity(self, *args, **kwargs):
         return None
 
+    def is_owned_by(self, *args, **kwargs):
+        return False
+
     def create_relationship(self, *args, **kwargs):
-        return {}
+        return True
 
     def delete_relationship(self, *args, **kwargs):
-        return None
+        return True
 
     def merge_entity(self, *args, **kwargs):
         return None
 
     def update_entity_properties(self, *args, **kwargs):
-        return None
+        return True
 
     def delete_entity(self, *args, **kwargs):
-        return None
+        return True
 
 
 @pytest.fixture(autouse=True)
