@@ -62,7 +62,9 @@ class ShodanService:
             data = resp.json()
             return data.get(domain)
         except requests.RequestException as exc:
-            logger.warning("Shodan DNS resolve falhou para %s: %s", domain, exc)
+            logger.warning(
+                "Shodan DNS resolve falhou para %s: %s", domain, exc
+            )
             # Fallback local
             try:
                 return socket.gethostbyname(domain)

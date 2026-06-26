@@ -70,10 +70,11 @@ class TestGetKey:
     def test_returns_none_when_no_key_anywhere(self, app):
         with app.app_context():
             with patch.dict("os.environ", {}, clear=True):
-                with patch("openm.services.shodan_service.ApiKey.query") as mock_q:
-                    mock_q.filter_by.return_value.order_by.return_value.first.return_value = (
-                        None
-                    )
+                with patch(
+                    "openm.services.shodan_service.ApiKey.query"
+                ) as mock_q:
+                    mock_q.filter_by.return_value.order_by.return_value. \
+                        first.return_value = None
                     result = ShodanService.get_key()
         assert result is None
 
@@ -90,9 +91,13 @@ class TestResolveDomain:
             with patch.object(
                 ShodanService, "get_key", return_value="fake-key"
             ):
-                with patch("openm.services.shodan_service.requests.get") as mock_get:
+                with patch(
+                    "openm.services.shodan_service.requests.get"
+                ) as mock_get:
                     mock_resp = MagicMock()
-                    mock_resp.json.return_value = {"example.com": "93.184.216.34"}
+                    mock_resp.json.return_value = {
+                        "example.com": "93.184.216.34"
+                    }
                     mock_get.return_value = mock_resp
 
                     result = ShodanService.resolve_domain("example.com")
@@ -127,13 +132,14 @@ class TestResolveDomain:
         assert result is None
 
     def test_api_falls_back_to_socket(self, app):
+        conn_err = requests.exceptions.ConnectionError("Connection timeout")
         with app.app_context():
             with patch.object(
                 ShodanService, "get_key", return_value="fake-key"
             ):
                 with patch(
                     "openm.services.shodan_service.requests.get",
-                    side_effect=requests.exceptions.ConnectionError("Connection timeout"),
+                    side_effect=conn_err,
                 ):
                     with patch(
                         "openm.services.shodan_service.socket.gethostbyname",
@@ -144,17 +150,19 @@ class TestResolveDomain:
         assert result == "5.6.7.8"
 
     def test_api_fails_and_socket_also_fails(self, app):
+        conn_err = requests.exceptions.ConnectionError("Connection timeout")
+        dns_err = OSError("DNS error")
         with app.app_context():
             with patch.object(
                 ShodanService, "get_key", return_value="fake-key"
             ):
                 with patch(
                     "openm.services.shodan_service.requests.get",
-                    side_effect=requests.exceptions.ConnectionError("Connection timeout"),
+                    side_effect=conn_err,
                 ):
                     with patch(
                         "openm.services.shodan_service.socket.gethostbyname",
-                        side_effect=OSError("DNS error"),
+                        side_effect=dns_err,
                     ):
                         result = ShodanService.resolve_domain("example.com")
 
@@ -165,7 +173,9 @@ class TestResolveDomain:
             with patch.object(
                 ShodanService, "get_key", return_value="fake-key"
             ):
-                with patch("openm.services.shodan_service.requests.get") as mock_get:
+                with patch(
+                    "openm.services.shodan_service.requests.get"
+                ) as mock_get:
                     mock_resp = MagicMock()
                     # Resposta sem a chave do domínio
                     mock_resp.json.return_value = {}
@@ -188,7 +198,9 @@ class TestQueryHost:
             with patch.object(
                 ShodanService, "get_key", return_value="fake-key"
             ):
-                with patch("openm.services.shodan_service.requests.get") as mock_get:
+                with patch(
+                    "openm.services.shodan_service.requests.get"
+                ) as mock_get:
                     mock_resp = MagicMock()
                     mock_resp.json.return_value = {
                         "ip": "1.1.1.1",
@@ -221,15 +233,16 @@ class TestQueryHost:
         assert result is None
 
     def test_http_error_returns_none(self, app):
+        http_err = requests.exceptions.HTTPError("404 Not Found")
         with app.app_context():
             with patch.object(
                 ShodanService, "get_key", return_value="fake-key"
             ):
-                with patch("openm.services.shodan_service.requests.get") as mock_get:
+                with patch(
+                    "openm.services.shodan_service.requests.get"
+                ) as mock_get:
                     mock_resp = MagicMock()
-                    mock_resp.raise_for_status.side_effect = requests.exceptions.HTTPError(
-                        "404 Not Found"
-                    )
+                    mock_resp.raise_for_status.side_effect = http_err
                     mock_get.return_value = mock_resp
 
                     result = ShodanService.query_host("1.1.1.1")
@@ -300,7 +313,8 @@ class TestInvestigateHost:
         # Primeiro serviço
         assert result["services"][0]["port"] == 80
         assert result["services"][0]["product"] == "Apache"
-        assert result["services"][0]["banner"] == "HTTP/1.1 200 OK\r\nServer: Apache"[:200]
+        expected_banner = "HTTP/1.1 200 OK\r\nServer: Apache"[:200]
+        assert result["services"][0]["banner"] == expected_banner
         # Location
         assert result["location"]["country"] == "United States"
         assert result["location"]["city"] == "San Francisco"
