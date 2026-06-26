@@ -1,3 +1,6 @@
+-- DEPRECATED: superseded by Alembic migration in migrations/versions/.
+-- Kept for one release per issue #36. Safe to delete after next deploy.
+--
 -- Migration v2: Investigations v2 (issues #25 e #29)
 -- Adiciona: status, archived_at, graph_snapshot, last_auto_save_at
 -- Idempotente: pode rodar múltiplas vezes sem erro.

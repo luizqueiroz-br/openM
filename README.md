@@ -97,9 +97,9 @@ pip install -r requirements.txt
 cp .env.example .env
 # edite NEO4J_URI, DATABASE_URL conforme necessário
 
-# Crie as tabelas
-python -c "from openm.app import create_app; from openm.extensions import db; \
-  app = create_app(); ctx = app.app_context(); ctx.push(); db.create_all()"
+# Aplique as migrations (cria as tabelas pela primeira vez)
+make db-upgrade
+# ou, equivalente: flask --app openm.app db upgrade
 
 flask run
 ```
@@ -194,6 +194,62 @@ openm/
 | PATCH | `/api/admin/users/<id>/active` | Ativar/desativar (admin) |
 | GET | `/api/audit-log` | Log de auditoria (admin) |
 | GET | `/health` | Healthcheck |
+
+---
+
+## 🗄 Migrations de banco (Flask-Migrate / Alembic, issue #36)
+
+A partir da issue #36 o schema do PostgreSQL é gerenciado pelo
+[Flask-Migrate](https://flask-migrate.readthedocs.io/) (wrapper de
+Alembic). O entrypoint (`entrypoint.sh`) aplica as migrations
+automaticamente antes de subir o app.
+
+**Workflow de desenvolvimento:**
+
+```bash
+# 1. Suba o Postgres
+make db-up
+
+# 2. Aplique as migrations
+make db-upgrade
+
+# 3. Depois de alterar models, gere uma nova migration
+make db-migrate NAME="add foo column to bar"
+# edite migrations/versions/<rev>_add_foo_column_to_bar.py
+# (revisar/hand-edit — autogenerate nem sempre acerta tudo)
+
+# 4. Aplique
+make db-upgrade
+```
+
+**Comandos disponíveis** (todos wrappers de `flask --app openm.app db ...`):
+
+| Alvo | Função |
+|---|---|
+| `make db-migrate NAME="..."` | Autogenerate de nova migration |
+| `make db-upgrade` | Aplica migrations pendentes (idempotente) |
+| `make db-downgrade REV=-1` | Reverte UMA migration |
+| `make db-stamp REV=head` | Marca o estado sem executar (cutover de DB legado) |
+| `make db-history` | Lista o histórico |
+| `make db-current` | Mostra a revision atual do banco |
+
+**Cutover de DB legado (primeiro deploy com DB já populado):**
+
+Em produção com dados pré-existentes, rode **uma única vez** após o
+primeiro deploy:
+
+```bash
+flask db stamp head
+```
+
+Isso marca as migrations como aplicadas sem executá-las (equivalente
+ao antigo `db.create_all()`). Nas próximas subidas o `flask db upgrade`
+no entrypoint detecta o stamp e não faz nada.
+
+**Testes unitários** continuam usando `db.create_all()` / `db.drop_all()`
+em SQLite (velocidade + isolamento). Apenas E2E e produção usam
+Alembic. Os scripts legados `scripts/migrate_*.sql` foram marcados como
+**DEPRECATED** e serão removidos na próxima release.
 
 ---
 

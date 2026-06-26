@@ -91,6 +91,15 @@ jobs:
           pip install -r requirements.txt
           pip install pytest pytest-cov
 
+      - name: Apply database migrations (Alembic)
+        # Idempotente — apenas roda ``flask db upgrade``. Em PRs futuros
+        # não deve estampar revisions novas (issue #36). CI roda contra
+        # o serviço postgres acima, unit tests continuam em SQLite.
+        env:
+          FLASK_APP: openm.app:app
+          DATABASE_URL: postgresql://openm:openm@localhost:5432/openm_test
+        run: flask db upgrade
+
       - name: Wait for Neo4j
         # Health check do Docker nem sempre detecta Bolt pronto. Retry manual.
         run: |
