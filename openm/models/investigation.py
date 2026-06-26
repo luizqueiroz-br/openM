@@ -16,6 +16,11 @@ class Investigation(db.Model):
     v2 (issue #25): cada investigation tem um status ('active' ou
     'archived'), um snapshot JSON completo do grafo (source of truth
     pra reabrir) e tracking de auto-save.
+
+    v3 (issue #37): coluna ``version`` para optimistic locking. PUT
+    incrementa a versão atomicamente; clientes enviam ``If-Match``
+    e recebem 409 se mudou. Archive/unarchive/delete NÃO mexem nela
+    (são idempotentes).
     """
 
     __tablename__ = "investigations"
@@ -41,6 +46,15 @@ class Investigation(db.Model):
         default=STATUS_ACTIVE,
         server_default=STATUS_ACTIVE,
         index=True,
+    )
+    # Optimistic locking (issue #37). Incrementado pelo PUT (não por
+    # archive/unarchive/delete — são idempotentes). Clientes enviam
+    # ``If-Match: "<version>"`` para detectar conflitos; mismatch → 409.
+    version = db.Column(
+        db.Integer,
+        nullable=False,
+        default=1,
+        server_default="1",
     )
     archived_at = db.Column(db.DateTime, nullable=True)
     graph_snapshot = db.Column(db.JSON, nullable=True)
@@ -75,6 +89,7 @@ class Investigation(db.Model):
             "root_entity_id": self.root_entity_id,
             "user_id": self.user_id,
             "status": self.status,
+            "version": self.version,
             "archived_at": self.archived_at.isoformat() if self.archived_at else None,
             "last_auto_save_at": (
                 self.last_auto_save_at.isoformat() if self.last_auto_save_at else None

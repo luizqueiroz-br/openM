@@ -7,24 +7,32 @@
  * se houver mudanças (snapshot via PUT /api/investigations/<id>).
  *
  * Lifecycle:
- *   start(id)  — começar a observar (chamar ao criar/abrir investigation)
- *   stop()     — parar (limpar grafo, arquivar, logout)
- *   markDirty() — marcar como tendo mudanças (chamado pelo Graph em add/remove/data)
- *   tick()     — chamado a cada 2min; se dirty, faz PUT
- *   render()   — atualiza o indicador #save-status
+ *   start(id, version)  — começar a observar (chamar ao criar/abrir investigation)
+ *                          version = currentInvestigationVersion para If-Match
+ *   stop()              — parar (limpar grafo, arquivar, logout)
+ *   markDirty()         — marcar como tendo mudanças
+ *   tick()              — chamado a cada 2min; se dirty, faz PUT (com If-Match)
+ *   render()            — atualiza o indicador #save-status
+ *
+ * Optimistic locking (issue #37):
+ *   - Envia ``If-Match: "<currentInvestigationVersion>"`` em cada PUT
+ *   - Em 409 (conflito): abre modal de resolução e PAUSA o auto-save
+ *     até o user decidir (Cancelar / Recarregar / Sobrescrever)
  */
 const AutoSave = {
     intervalId: null,
     intervalMs: 2 * 60 * 1000,
     currentInvestigationId: null,
+    currentInvestigationVersion: null,
     hasChanges: false,
     _saving: false,
     _lastError: null,
 
-    start(investigationId) {
+    start(investigationId, version = null) {
         this.stop();
         if (!investigationId) return;
         this.currentInvestigationId = investigationId;
+        this.currentInvestigationVersion = version;
         this.hasChanges = false;
         this._saving = false;
         this._lastError = null;
@@ -33,11 +41,15 @@ const AutoSave = {
     },
 
     stop() {
-        if (this.intervalId) clearInterval(this.intervalId);
-        this.intervalId = null;
+        if (this.intervalId !== null) {
+            clearInterval(this.intervalId);
+            this.intervalId = null;
+        }
         this.currentInvestigationId = null;
+        this.currentInvestigationVersion = null;
         this.hasChanges = false;
         this._saving = false;
+        this._lastError = null;
         this.render();
     },
 
@@ -54,28 +66,27 @@ const AutoSave = {
 
         try {
             const snapshot = Graph.exportJson();
-            // Remove o campo 'exported_at' antes de salvar (é metadata local)
             const cleanSnapshot = {
                 nodes: snapshot.nodes || [],
                 edges: snapshot.edges || [],
             };
-            await OpenMAPI.updateInvestigation(
+            const response = await OpenMAPI.updateInvestigation(
                 this.currentInvestigationId,
-                { graph_snapshot: cleanSnapshot }
+                { graph_snapshot: cleanSnapshot },
+                { ifMatch: this.currentInvestigationVersion },
             );
+            // Sucesso: atualiza version local para o próximo tick
+            if (response && response.investigation && response.investigation.version) {
+                this.currentInvestigationVersion = response.investigation.version;
+            }
             this.hasChanges = false;
             this._lastError = null;
         } catch (err) {
-            // Se a investigation sumiu (deletada em outra aba, ou por
-            // outro user), parar o auto-save e limpar o grafo para
-            // evitar loop infinito tentando salvar num registro que
-            // não existe mais (issue #35).
             if (err.status === 404) {
+                // Investigation sumiu (deletada em outra aba) — issue #35
                 console.warn('Auto-save: investigation não encontrada (404). Parando.');
                 this.stop();
-                if (window.Graph && window.Graph.clear) {
-                    window.Graph.clear();
-                }
+                if (window.Graph && window.Graph.clear) window.Graph.clear();
                 if (window.App && window.App.setStatus) {
                     window.App.setStatus(
                         'Investigação não encontrada (provavelmente excluída). Auto-save parado.',
@@ -84,12 +95,109 @@ const AutoSave = {
                 }
                 return;
             }
-            // Mantém hasChanges=true pra tentar de novo no próximo tick
+            if (err.status === 409) {
+                // Conflito de versão (issue #37) — abre modal de resolução
+                console.warn('Auto-save: conflito de versão (409). Abrindo modal.');
+                const conflictData = err.body || {};
+                this._handleConflict(conflictData);
+                return;
+            }
+            // Outros erros: comportamento legado (retry no próximo tick)
             this._lastError = err.message || 'erro desconhecido';
             console.error('Auto-save falhou:', err);
         } finally {
             this._saving = false;
             this.render();
+        }
+    },
+
+    /**
+     * Trata 409 Conflict vindo do PUT (issue #37).
+     *
+     * Abre Modal.conflictResolve com 3 opções:
+     *   - Cancelar:    mantém grafo local, marca como não salvo
+     *   - Recarregar:  substitui grafo com current_snapshot do servidor
+     *   - Sobrescrever: PUT sem If-Match (força; descarta versão do servidor)
+     */
+    _handleConflict(conflictData) {
+        // Marca hasChanges=false para parar de tentar save até o user decidir.
+        this.hasChanges = false;
+        this._lastError = 'conflito';
+
+        if (window.Modal && window.Modal.conflictResolve) {
+            window.Modal.conflictResolve({
+                currentVersion: conflictData.current_version,
+                yourVersion: conflictData.your_version,
+                currentSnapshot: conflictData.current_snapshot,
+                onReload: () => {
+                    // Recarrega: substitui grafo + atualiza version local.
+                    if (conflictData.current_snapshot) {
+                        Graph.loadSnapshot(conflictData.current_snapshot);
+                    }
+                    this.currentInvestigationVersion = conflictData.current_version;
+                    this._lastError = null;
+                    if (window.App && window.App.setStatus) {
+                        window.App.setStatus(
+                            'Snapshot recarregado do servidor. Suas alterações locais foram perdidas.',
+                            'warning',
+                        );
+                    }
+                    this.render();
+                },
+                onOverwrite: async () => {
+                    // Sobrescreve: PUT sem If-Match (servidor não checa).
+                    this._lastError = null;
+                    this.render();
+                    try {
+                        const snapshot = Graph.exportJson();
+                        const cleanSnapshot = {
+                            nodes: snapshot.nodes || [],
+                            edges: snapshot.edges || [],
+                        };
+                        const response = await OpenMAPI.updateInvestigation(
+                            this.currentInvestigationId,
+                            { graph_snapshot: cleanSnapshot },
+                            // SEM ifMatch — sobrescreve sem check.
+                        );
+                        if (response && response.investigation && response.investigation.version) {
+                            this.currentInvestigationVersion = response.investigation.version;
+                        }
+                        this.hasChanges = false;
+                        if (window.App && window.App.setStatus) {
+                            window.App.setStatus(
+                                'Versão do servidor sobrescrita.',
+                                'success',
+                            );
+                        }
+                    } catch (e) {
+                        this._lastError = e.message || 'erro ao sobrescrever';
+                        if (window.App && window.App.setStatus) {
+                            window.App.setStatus(
+                                `Erro ao sobrescrever: ${e.message}`,
+                                'error',
+                            );
+                        }
+                    } finally {
+                        this.render();
+                    }
+                },
+                onCancel: () => {
+                    // Cancela: mantém grafo local, marca como não salvo.
+                    this.hasChanges = true;
+                    this._lastError = 'conflito';
+                    if (window.App && window.App.setStatus) {
+                        window.App.setStatus(
+                            'Conflito não resolvido. Salve manualmente após revisar.',
+                            'warning',
+                        );
+                    }
+                    this.render();
+                },
+            });
+        } else {
+            // Fallback se Modal.conflictResolve não existir (dev/test)
+            console.error('Modal.conflictResolve não disponível');
+            alert('Conflito de versão detectado. Recarregue a página.');
         }
     },
 
@@ -378,7 +486,8 @@ const App = {
 
     /**
      * Abre uma investigation: salva a atual (se houver mudanças), busca o
-     * snapshot do PG e carrega no grafo. Inicia auto-save. (issue #27)
+     * snapshot do PG e carrega no grafo. Inicia auto-save com a versão
+     * atual (issue #27 + #37).
      */
     async openInvestigation(id) {
         // Salva a investigation atual antes de trocar (se houver mudanças)
@@ -394,8 +503,9 @@ const App = {
             // Carrega snapshot no Graph (com fallback se for legacy/null)
             Graph.loadSnapshot(inv.graph_snapshot);
 
-            // Inicia auto-save
-            AutoSave.start(id);
+            // Inicia auto-save com a versão atual (issue #37 — If-Match
+            // começa a partir desta versão)
+            AutoSave.start(id, inv.version);
 
             this.setStatus(`Investigação "${inv.title}" carregada.`, 'success');
             this.loadInvestigations();  // atualiza "current" marker
@@ -437,15 +547,21 @@ const App = {
             const savedTitle = result?.investigation?.title || title;
             const savedId = result?.investigation?.id;
 
-            // Salva o snapshot atual do grafo na nova investigation
+            // Salva o snapshot atual do grafo na nova investigation.
+            // Pega a version retornada pelo PUT pra passar pro AutoSave
+            // (issue #37 — start com versão correta evita 409 imediato).
             if (savedId) {
                 const snapshot = Graph.exportJson();
                 const cleanSnapshot = {
                     nodes: snapshot.nodes || [],
                     edges: snapshot.edges || [],
                 };
-                await OpenMAPI.updateInvestigation(savedId, { graph_snapshot: cleanSnapshot });
-                AutoSave.start(savedId);
+                const putResult = await OpenMAPI.updateInvestigation(
+                    savedId,
+                    { graph_snapshot: cleanSnapshot },
+                );
+                const initialVersion = (putResult && putResult.investigation && putResult.investigation.version) || 1;
+                AutoSave.start(savedId, initialVersion);
             }
 
             this.setStatus(`✓ Investigação "${savedTitle}" criada e salva.`, 'success');

@@ -47,6 +47,7 @@ _PERMISSION_MATRIX = [
     # Investigations — leitura liberada, escrita só admin+analyst
     ("GET",    "/api/investigations",             True,  True,  True),
     ("POST",   "/api/investigations",             False, True,  True),
+    ("PUT",    "/api/investigations/{inv_id}",    False, True,  True),
     ("DELETE", "/api/investigations/{inv_id}",    False, True,  True),
     # Entities — escrita restrita
     ("POST",   "/api/entity",                     False, True,  True),
@@ -114,7 +115,9 @@ def test_rbac_matrix(method, path, viewer_ok, analyst_ok, admin_ok, request, app
         # investigation legacy (user_id=null) para que tanto analyst
         # quanto admin possam deletar — coerente com a regra de
         # leitura (legacy é visível pra qualquer user logado).
-        if method == "DELETE" and "/investigations/" in path:
+        # PUT também consome o recurso (muda title + incrementa version),
+        # então re-seed para a próxima role testada também (issue #37).
+        if (method == "DELETE" or method == "PUT") and "/investigations/" in path:
             with app.app_context():
                 old = Investigation.query.filter_by(
                     title="rbac-test-inv",
@@ -135,13 +138,16 @@ def test_rbac_matrix(method, path, viewer_ok, analyst_ok, admin_ok, request, app
 
         client = _client_for(role, request)
         body = {}
-        if method in ("POST", "PATCH"):
+        if method in ("POST", "PATCH", "PUT"):
             if path.endswith("/role"):
                 body = {"role": "analyst"}
             elif path.endswith("/active"):
                 body = {"is_active": True}
             elif path == "/api/investigations":
                 body = {"title": "x"}
+            elif path.startswith("/api/investigations/") and method == "PUT":
+                # PUT /api/investigations/<id> — issue #37
+                body = {"title": "rbac-renamed"}
             elif path == "/api/entity":
                 body = {"type": "Domain", "value": "x.com"}
             elif path.startswith("/api/entity/"):
