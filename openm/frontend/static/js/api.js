@@ -48,7 +48,14 @@ async function api(path, options = {}) {
     }
 
     if (!response.ok) {
-        throw new Error(data.error || `HTTP ${response.status}`);
+        // Preserva status code + body no Error para que catch sites
+        // possam reagir (ex.: AutoSave detecta 404 e para o loop).
+        // Retrocompat: `err.message` continua funcionando como antes.
+        const message = data.error || `HTTP ${response.status}`;
+        const err = new Error(message);
+        err.status = response.status;
+        err.body = data;
+        throw err;
     }
     return data;
 }
@@ -181,6 +188,10 @@ const OpenMAPI = {
 
     unarchiveInvestigation: (id) =>
         api(`/investigations/${id}/unarchive`, { method: 'POST' }),
+
+    // Hard delete (issue #35): 204 No Content. ApiError tem .status=204.
+    deleteInvestigation: (id) =>
+        api(`/investigations/${id}`, { method: 'DELETE' }),
 
     // ============ API Keys ============
     listKeys: () => api('/keys'),

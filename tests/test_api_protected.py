@@ -187,6 +187,7 @@ PROTECTED_ROUTES = [
     ("POST", "/api/investigations", {"title": "t"}),
     ("GET", "/api/investigations", None),
     ("GET", "/api/investigations/1", None),
+    ("DELETE", "/api/investigations/1", None),
     ("GET", "/api/keys", None),
     ("POST", "/api/keys", {"service_name": "s", "key_value": "k"}),
     ("DELETE", "/api/keys/1", None),

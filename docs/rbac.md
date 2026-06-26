@@ -64,7 +64,7 @@ O decorator `@require_auth` popula `g.user` e `g.role` em cada request, e `@requ
 | `PUT    /api/investigations/<id>` | ✗ | ✓ | ✓ |
 | `POST   /api/investigations/<id>/archive` | ✗ | ✓ | ✓ |
 | `POST   /api/investigations/<id>/unarchive` | ✗ | ✓ | ✓ |
-| `DELETE /api/investigations/<id>` *(issue #35)* | ✗ | ✓ | ✓ |
+| `DELETE /api/investigations/<id>` | ✗ | ✓ | ✓ |
 | `GET    /api/subgraph/<id>` | ✓ | ✓ | ✓ |
 | `GET    /api/transforms/<type>` | ✓ | ✓ | ✓ |
 | `POST   /api/entity` | ✗ | ✓ | ✓ |

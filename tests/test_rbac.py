@@ -13,6 +13,7 @@ import pytest
 from openm.core.auth import hash_password
 from openm.extensions import db
 from openm.models.api_key import ApiKey
+from openm.models.investigation import Investigation
 from openm.models.user import User
 
 
@@ -46,6 +47,7 @@ _PERMISSION_MATRIX = [
     # Investigations — leitura liberada, escrita só admin+analyst
     ("GET",    "/api/investigations",             True,  True,  True),
     ("POST",   "/api/investigations",             False, True,  True),
+    ("DELETE", "/api/investigations/{inv_id}",    False, True,  True),
     # Entities — escrita restrita
     ("POST",   "/api/entity",                     False, True,  True),
     ("PATCH",  "/api/entity/ok1",                 False, True,  True),
@@ -106,6 +108,30 @@ def test_rbac_matrix(method, path, viewer_ok, analyst_ok, admin_ok, request, app
                 db.session.commit()
                 new_key = ApiKey.query.filter_by(service_name="rbac-test").first()
                 path = f"/api/keys/{new_key.id}"
+
+        # DELETE de investigation também consome o recurso: recria
+        # antes de cada role testada (issue #35). Usamos uma
+        # investigation legacy (user_id=null) para que tanto analyst
+        # quanto admin possam deletar — coerente com a regra de
+        # leitura (legacy é visível pra qualquer user logado).
+        if method == "DELETE" and "/investigations/" in path:
+            with app.app_context():
+                old = Investigation.query.filter_by(
+                    title="rbac-test-inv",
+                ).first()
+                if old is not None:
+                    db.session.delete(old)
+                    db.session.commit()
+                db.session.add(Investigation(
+                    title="rbac-test-inv",
+                    user_id=None,  # legacy: visível/deletável por analyst/admin
+                    status="active",
+                ))
+                db.session.commit()
+                new_inv = Investigation.query.filter_by(
+                    title="rbac-test-inv",
+                ).first()
+                path = f"/api/investigations/{new_inv.id}"
 
         client = _client_for(role, request)
         body = {}
