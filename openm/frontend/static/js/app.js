@@ -66,6 +66,24 @@ const AutoSave = {
             this.hasChanges = false;
             this._lastError = null;
         } catch (err) {
+            // Se a investigation sumiu (deletada em outra aba, ou por
+            // outro user), parar o auto-save e limpar o grafo para
+            // evitar loop infinito tentando salvar num registro que
+            // não existe mais (issue #35).
+            if (err.status === 404) {
+                console.warn('Auto-save: investigation não encontrada (404). Parando.');
+                this.stop();
+                if (window.Graph && window.Graph.clear) {
+                    window.Graph.clear();
+                }
+                if (window.App && window.App.setStatus) {
+                    window.App.setStatus(
+                        'Investigação não encontrada (provavelmente excluída). Auto-save parado.',
+                        'warning',
+                    );
+                }
+                return;
+            }
             // Mantém hasChanges=true pra tentar de novo no próximo tick
             this._lastError = err.message || 'erro desconhecido';
             console.error('Auto-save falhou:', err);
@@ -268,6 +286,9 @@ const App = {
                             <button class="js-toggle-archive" title="${isArchived ? 'Desarquivar' : 'Arquivar'}">
                                 <i class="fa-solid ${isArchived ? 'fa-box-open' : 'fa-box-archive'}"></i>
                             </button>
+                            <button class="js-delete danger" title="Excluir">
+                                <i class="fa-solid fa-trash"></i>
+                            </button>
                         </div>
                     </li>`;
             }).join('');
@@ -302,12 +323,57 @@ const App = {
                     }
                 });
 
+                li.querySelector('.js-delete')?.addEventListener('click', (e) => {
+                    e.stopPropagation();
+                    const title = li.querySelector('.title')?.textContent || '';
+                    Modal.confirm({
+                        title: 'Excluir investigação?',
+                        message: `Excluir "${title}"? Esta ação não pode ser desfeita.`,
+                        danger: true,
+                        onConfirm: () => this.deleteInvestigation(id),
+                    });
+                });
+
                 // Click no item (não nos botões) também abre
                 li.addEventListener('click', () => this.openInvestigation(id));
             });
         } catch (err) {
             this.setStatus(err.message, 'error');
         }
+    },
+
+    /**
+     * DELETE hard da investigation (issue #35).
+     * Modal.confirm já pediu confirmação antes de chamar este método.
+     *
+     * - Se era a investigation aberta: para AutoSave + limpa grafo
+     *   (evita loop do AutoSave tentando salvar em um registro que
+     *   não existe mais — AutoSave.tick também reage a 404 como rede
+     *   de segurança, mas aqui pegamos o caso antes do próximo tick).
+     * - Recarrega a lista (o item some).
+     * - Em 404: outro user/aba deletou antes — só atualiza lista.
+     */
+    async deleteInvestigation(id) {
+        try {
+            await OpenMAPI.deleteInvestigation(id);
+        } catch (err) {
+            if (err.status === 404) {
+                this.setStatus('Investigação não encontrada.', 'error');
+                await this.loadInvestigations();
+                return;
+            }
+            this.setStatus(`Erro ao excluir: ${err.message}`, 'error');
+            return;
+        }
+        this.setStatus('Investigação excluída.', 'success');
+
+        // Se era a investigation aberta, parar auto-save + limpar grafo.
+        if (AutoSave.currentInvestigationId === id) {
+            AutoSave.stop();
+            Graph.clear();
+        }
+
+        await this.loadInvestigations();
     },
 
     /**

@@ -2,12 +2,13 @@
 Investigations API v2 (issue #26).
 
 Endpoints:
-- POST   /api/investigations              — criar
-- GET    /api/investigations              — listar com filtros (status, search, sort)
-- GET    /api/investigations/<id>         — detalhe (inclui graph_snapshot)
-- PUT    /api/investigations/<id>         — atualizar (titulo/desc/snapshot)
-- POST   /api/investigations/<id>/archive   — arquivar
-- POST   /api/investigations/<id>/unarchive — desarquivar
+- POST   /api/investigations                 — criar
+- GET    /api/investigations                 — listar com filtros (status, search, sort)
+- GET    /api/investigations/<id>            — detalhe (inclui graph_snapshot)
+- PUT    /api/investigations/<id>            — atualizar (titulo/desc/snapshot)
+- POST   /api/investigations/<id>/archive    — arquivar
+- POST   /api/investigations/<id>/unarchive  — desarquivar
+- DELETE /api/investigations/<id>            — excluir (issue #35; hard delete)
 
 Multi-user (issue #2): todos os endpoints filtram por user_id. Legacy
 investigations (user_id=null) são visíveis para qualquer user logado.
@@ -26,6 +27,7 @@ from openm.core.audit import (
     ACTION_INVESTIGATION_UPDATE,
     ACTION_INVESTIGATION_ARCHIVE,
     ACTION_INVESTIGATION_UNARCHIVE,
+    ACTION_INVESTIGATION_DELETE,
 )
 from openm.extensions import db
 from openm.models.investigation import Investigation
@@ -326,3 +328,56 @@ def unarchive_investigation(investigation_id: int):
         user_id=g.user.id,
     )
     return jsonify({"investigation": investigation.to_dict()})
+
+
+# ============ DELETE /api/investigations/<id> ============
+
+@investigations_bp.route(
+    "/investigations/<int:investigation_id>",
+    methods=["DELETE"],
+)
+@require_auth
+@require_role("admin", "analyst")
+def delete_investigation(investigation_id: int):
+    """
+    DELETE /api/investigations/<id>
+
+    Hard delete (issue #35): remove o registro da investigação
+    permanentemente. Sem soft delete e sem migration.
+
+    - Anti-enumeração cross-user: 404 (não 403) — reusa helper
+      ``_owned_or_404`` (mesma convenção das outras rotas).
+    - Legacy (user_id=null): qualquer analyst/admin pode deletar
+      (consistente com a regra de leitura — legacy é visível para
+      qualquer user logado).
+    - Audit log é gravado ANTES do delete com snapshot do título e
+      status_before_delete, para preservar contexto histórico mesmo
+      após a remoção do registro.
+    - Cascade Neo4j NÃO é aplicado — entidades no grafo permanecem
+      (ownership no Neo4j é por user_id, não por investigation; ver
+      issue #38). O frontend deve reagir ao 404 do AutoSave parando
+      o loop e limpando o grafo.
+    - Resposta: 204 No Content (sem body).
+    """
+    investigation = _owned_or_404(investigation_id)
+    if investigation is None:
+        return jsonify({"error": "not found"}), 404
+
+    # Snapshot ANTES de deletar — o registro some logo abaixo.
+    snapshot_meta = {
+        "title": investigation.title,
+        "status_before_delete": investigation.status,
+    }
+
+    db.session.delete(investigation)
+    db.session.commit()
+
+    log_action(
+        action=ACTION_INVESTIGATION_DELETE,
+        target_type="investigation",
+        target_id=str(investigation_id),
+        user_id=g.user.id,
+        metadata=snapshot_meta,
+    )
+
+    return "", 204
