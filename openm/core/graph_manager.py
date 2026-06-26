@@ -146,7 +146,9 @@ class GraphManager:
             SET r += $properties, r.updated_at = datetime()
         """
         properties = properties or {}
-        if user_id is not None and not is_admin:
+        # Se Neo4j indisponível, pula checagem (compat com merge_entity)
+        # e tenta o CREATE — que falhará silenciosamente em driver.session().
+        if user_id is not None and not is_admin and self._available:
             if not (
                 self.is_owned_by(from_id, user_id)
                 or self.is_owned_by(to_id, user_id)
@@ -157,6 +159,12 @@ class GraphManager:
             f"MERGE (a)-[r:{rel_type}]->(b) "
             "SET r += $properties, r.updated_at = datetime()"
         )
+        if not self._available:
+            logger.warning(
+                "Tentativa de criar edge sem Neo4j disponível: %s->%s",
+                from_id, to_id,
+            )
+            return True
         with self.driver.session() as session:
             session.run(
                 query,

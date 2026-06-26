@@ -20,6 +20,7 @@ import pytest
 from openm.app import create_app
 from openm.config import Config
 from openm.core.auth import hash_password
+from openm.core.entity import Domain
 from openm.core.graph_manager import GraphManager
 from openm.extensions import db
 from openm.models.user import User
@@ -619,6 +620,682 @@ class TestIsOwnedByUnit:
         gm = self._make_gm_with_node(owner_id=_SENTINEL_NO_NODE)
         assert gm.is_owned_by("any-id", user_id=99) is False
 
+    def test_unavailable_driver_returns_false(self):
+        """Quando Neo4j não está disponível, is_owned_by retorna False."""
+        gm = self._make_gm_with_node(owner_id=42)
+        gm._available = False
+        assert gm.is_owned_by("any-id", user_id=42) is False
+        assert gm.is_owned_by("any-id", user_id=42, is_admin=True) is False
+
+
+# ===================== Unit tests do GraphManager: demais métodos
+# =====================
+
+
+class _RecordingSession:
+    """Sessão Neo4j mockada que registra todas as queries executadas."""
+
+    def __init__(self, response_value=None, single_value=None):
+        self.queries = []
+        self.params_list = []
+        self._response = response_value
+        self._single = single_value
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *a):
+        return False
+
+    def run(self, query, **params):
+        self.queries.append(query)
+        self.params_list.append(params)
+        return self
+
+    def single(self):
+        return self._single
+
+
+class _RecordingDriver:
+    def __init__(self, single_value=None):
+        self.single_value = single_value
+        self.sessions = []
+
+    def session(self):
+        s = _RecordingSession(single_value=self.single_value)
+        self.sessions.append(s)
+        return s
+
+
+def _make_gm_available(single_value=None):
+    """Cria GraphManager disponível com driver que captura tudo."""
+    gm = GraphManager.__new__(GraphManager)
+    gm._available = True
+    gm.driver = _RecordingDriver(single_value=single_value)
+    return gm
+
+
+class TestGraphManagerUnit:
+    """Cobertura unitária dos métodos do GraphManager com driver stub."""
+
+    # ----- merge_entity -----
+
+    def test_merge_entity_writes_user_id(self):
+        """merge_entity persiste created_by_user_id no SET Cypher."""
+        gm = _make_gm_available()
+        entity = Domain(
+            value="x.com", properties={"k": "v"}, created_by_user_id=42
+        )
+        gm.merge_entity(entity)
+        assert len(gm.driver.sessions) == 1
+        sess = gm.driver.sessions[0]
+        # Query contém o SET com user_id
+        assert "n.created_by_user_id = $user_id" in sess.queries[0]
+        assert sess.params_list[0]["user_id"] == 42
+        assert sess.params_list[0]["id"] == entity.id
+
+    def test_merge_entity_unavailable_skips(self):
+        """Quando Neo4j indisponível, merge_entity é no-op silencioso."""
+        gm = GraphManager.__new__(GraphManager)
+        gm._available = False
+        gm.driver = _RecordingDriver()
+        gm.merge_entity(Domain(value="x.com", created_by_user_id=1))
+        assert gm.driver.sessions == []
+
+    # ----- create_relationship -----
+
+    def test_create_relationship_admin_skips_ownership(self):
+        """Admin bypassa o ownership check."""
+        gm = _make_gm_available()
+        ok = gm.create_relationship(
+            "a", "b", "REL", user_id=1, is_admin=True
+        )
+        assert ok is True
+        assert len(gm.driver.sessions) == 1
+
+    def test_create_relationship_no_user_id_skips_ownership(self):
+        """Sem user_id, ownership não é checado (compatibilidade)."""
+        gm = _make_gm_available()
+        ok = gm.create_relationship("a", "b", "REL")
+        assert ok is True
+
+    def test_create_relationship_blocked_when_neither_owned(self):
+        """Se nenhuma ponta é do user, retorna False sem chamar Neo4j."""
+        # _make_gm_with_node: from_id "alice-x" é owned by 1, "bob-y" por 2
+        gm = _make_gm_available()
+        ok = gm.create_relationship(
+            "alice-x", "bob-y", "REL", user_id=99
+        )
+        assert ok is False
+        # is_owned_by é chamado 2x (from + to), criando 2 sessões,
+        # mas a query de MERGE nunca roda.
+        assert len(gm.driver.sessions) == 2
+        for sess in gm.driver.sessions:
+            assert "created_by_user_id" in sess.queries[0]
+        # Nenhuma das queries é o MERGE final
+        all_queries = [q for s in gm.driver.sessions for q in s.queries]
+        assert not any("MERGE" in q for q in all_queries)
+
+    def test_create_relationship_unavailable_returns_true(self):
+        """Compat: Neo4j indisponível → retorna True (não bloqueia)."""
+        gm = GraphManager.__new__(GraphManager)
+        gm._available = False
+        gm.driver = _RecordingDriver()
+        ok = gm.create_relationship(
+            "a", "b", "REL", user_id=1, is_admin=False
+        )
+        assert ok is True
+        assert gm.driver.sessions == []
+
+    # ----- update_entity_properties -----
+
+    def test_update_entity_properties_owner_passes(self):
+        """Owner pode atualizar."""
+        gm = _make_gm_available(single_value={"owner_id": 42})
+        ok = gm.update_entity_properties(
+            "e1", {"x": 1}, user_id=42
+        )
+        assert ok is True
+        # Sessão 0 = is_owned_by lookup, sessão 1 = update real
+        assert len(gm.driver.sessions) == 2
+        assert "SET n += $props" in gm.driver.sessions[1].queries[0]
+
+    def test_update_entity_properties_admin_bypasses(self):
+        gm = _make_gm_available(single_value={"owner_id": 1})
+        ok = gm.update_entity_properties(
+            "e1", {"x": 1}, user_id=99, is_admin=True
+        )
+        assert ok is True
+        # Admin bypassa is_owned_by → só 1 sessão (update direto)
+        assert len(gm.driver.sessions) == 1
+        assert "SET n += $props" in gm.driver.sessions[0].queries[0]
+
+    def test_update_entity_properties_blocked_cross_user(self):
+        """Cross-user → False antes de chamar Neo4j."""
+        gm = _make_gm_available(single_value={"owner_id": 1})
+        ok = gm.update_entity_properties(
+            "e1", {"x": 1}, user_id=99
+        )
+        assert ok is False
+        # is_owned_by foi chamado (1 sessão), update NÃO
+        assert len(gm.driver.sessions) == 1
+        assert "created_by_user_id" in gm.driver.sessions[0].queries[0]
+
+    def test_update_entity_properties_missing_entity_returns_false(self):
+        gm = _make_gm_available(single_value=None)
+        ok = gm.update_entity_properties(
+            "e1", {"x": 1}, user_id=99
+        )
+        assert ok is False
+        assert len(gm.driver.sessions) == 1
+
+    def test_update_entity_properties_unavailable_returns_true(self):
+        gm = GraphManager.__new__(GraphManager)
+        gm._available = False
+        gm.driver = _RecordingDriver()
+        ok = gm.update_entity_properties(
+            "e1", {"x": 1}, user_id=99
+        )
+        assert ok is True
+        assert gm.driver.sessions == []
+
+    # ----- delete_entity -----
+
+    def test_delete_entity_owner_passes(self):
+        gm = _make_gm_available(single_value={"owner_id": 42})
+        ok = gm.delete_entity("e1", user_id=42)
+        assert ok is True
+        # Sessão 0 = is_owned_by, sessão 1 = delete
+        assert len(gm.driver.sessions) == 2
+        assert "DETACH DELETE" in gm.driver.sessions[1].queries[0]
+
+    def test_delete_entity_admin_bypasses(self):
+        gm = _make_gm_available(single_value={"owner_id": 1})
+        ok = gm.delete_entity("e1", user_id=99, is_admin=True)
+        assert ok is True
+        assert len(gm.driver.sessions) == 1
+        assert "DETACH DELETE" in gm.driver.sessions[0].queries[0]
+
+    def test_delete_entity_blocked_cross_user(self):
+        gm = _make_gm_available(single_value={"owner_id": 1})
+        ok = gm.delete_entity("e1", user_id=99)
+        assert ok is False
+        assert len(gm.driver.sessions) == 1
+        assert "created_by_user_id" in gm.driver.sessions[0].queries[0]
+
+    def test_delete_entity_missing_returns_false(self):
+        gm = _make_gm_available(single_value=None)
+        ok = gm.delete_entity("e1", user_id=99)
+        assert ok is False
+        assert len(gm.driver.sessions) == 1
+
+    def test_delete_entity_unavailable_returns_true(self):
+        gm = GraphManager.__new__(GraphManager)
+        gm._available = False
+        gm.driver = _RecordingDriver()
+        ok = gm.delete_entity("e1", user_id=99)
+        assert ok is True
+        assert gm.driver.sessions == []
+
+    # ----- delete_relationship -----
+
+    def _make_gm_for_rel(self, from_id="a", to_id="b"):
+        """Cria GM que retorna (from_id, to_id) na query de
+        delete_relationship.
+        """
+
+        class _RelSession(_RecordingSession):
+            def single(self):
+                return {"from_id": from_id, "to_id": to_id}
+
+        class _RelDriver:
+            def __init__(self):
+                self.sessions = []
+
+            def session(self):
+                s = _RelSession()
+                self.sessions.append(s)
+                return s
+
+        gm = GraphManager.__new__(GraphManager)
+        gm._available = True
+        gm.driver = _RelDriver()
+        return gm
+
+    def test_delete_relationship_owner_passes(self):
+        """Quando uma das pontas é do user, deletar passa."""
+        gm = GraphManager.__new__(GraphManager)
+        gm._available = True
+
+        class _MultiSession:
+            def __init__(self):
+                self.queries = []
+                self.last_query = None
+
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *a):
+                return False
+
+            def run(self, query, **params):
+                self.queries.append(query)
+                self.last_query = query
+                return self
+
+            def single(self):
+                # is_owned_by: legacy (None) → True
+                if "created_by_user_id" in (self.last_query or ""):
+                    return {"owner_id": None}
+                # delete_relationship lookup: from_id/to_id
+                return {"from_id": "legacy-1", "to_id": "legacy-2"}
+
+        class _MultiDriver:
+            def __init__(self):
+                self.sessions = []
+
+            def session(self):
+                s = _MultiSession()
+                self.sessions.append(s)
+                return s
+
+        gm.driver = _MultiDriver()
+        ok = gm.delete_relationship("rel-123", user_id=42)
+        assert ok is True
+        # 3 sessões: is_owned_by(from_id) + is_owned_by(to_id) + delete
+        # legacy-1 é owned por qualquer (None) → is_owned_by retorna True na 1ª
+        # 2ª chamada (to_id=legacy-2): já bateu o `or`, mas o `or`
+        # short-circuits, então pode haver 2 OU 3 sessões dependendo
+        # da ordem.
+        assert len(gm.driver.sessions) >= 2
+        # Última sessão: DELETE r
+        last = gm.driver.sessions[-1]
+        assert "DELETE r" in last.queries[0]
+
+    def test_delete_relationship_admin_bypasses(self):
+        """Admin pode deletar sem checar ownership."""
+        gm = _make_gm_available()
+        ok = gm.delete_relationship("rel-123", user_id=99, is_admin=True)
+        assert ok is True
+        assert "DELETE r" in gm.driver.sessions[0].queries[0]
+
+    def test_delete_relationship_blocked_cross_user(self):
+        """Quando nenhuma ponta é do user, retorna False."""
+
+        class _NoOwnershipSession:
+            def __init__(self):
+                self.queries = []
+
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *a):
+                return False
+
+            def run(self, query, **params):
+                self.queries.append(query)
+                return self
+
+            def single(self):
+                # lookup from_id/to_id
+                if "created_by_user_id" in (self.queries[-1] or ""):
+                    return {"owner_id": 999}  # outro user
+                return {"from_id": "alice-1", "to_id": "bob-1"}
+
+        class _NoOwnershipDriver:
+            def session(self):
+                return _NoOwnershipSession()
+
+        gm = GraphManager.__new__(GraphManager)
+        gm._available = True
+        gm.driver = _NoOwnershipDriver()
+        ok = gm.delete_relationship("rel-123", user_id=42)
+        assert ok is False
+
+    def test_delete_relationship_missing_returns_false(self):
+        """Quando lookup retorna None (edge não existe), retorna False."""
+
+        class _MissingSession:
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *a):
+                return False
+
+            def run(self, query, **params):
+                return self
+
+            def single(self):
+                return None
+
+        class _MissingDriver:
+            def session(self):
+                return _MissingSession()
+
+        gm = GraphManager.__new__(GraphManager)
+        gm._available = True
+        gm.driver = _MissingDriver()
+        ok = gm.delete_relationship("rel-123", user_id=42)
+        assert ok is False
+
+    def test_delete_relationship_unavailable_returns_true(self):
+        gm = GraphManager.__new__(GraphManager)
+        gm._available = False
+        gm.driver = _RecordingDriver()
+        ok = gm.delete_relationship("rel-123", user_id=42)
+        assert ok is True
+
+    # ----- close -----
+
+    def test_close_closes_driver(self):
+        """close() delega para driver.close()."""
+        gm = GraphManager.__new__(GraphManager)
+        closed = []
+
+        class _CloseableDriver:
+            def close(self):
+                closed.append(True)
+
+        gm.driver = _CloseableDriver()
+        gm.close()
+        assert closed == [True]
+
+    # ----- ensure_constraints -----
+
+    def test_ensure_constraints_success_marks_available(self):
+        """Quando Neo4j responde, seta _available=True."""
+        gm = GraphManager.__new__(GraphManager)
+        gm._available = False
+        gm.driver = _RecordingDriver()
+        gm.ensure_constraints()
+        assert gm._available is True
+        assert len(gm.driver.sessions) == 1
+        assert "CREATE CONSTRAINT" in gm.driver.sessions[0].queries[0]
+
+    def test_ensure_constraints_failure_marks_unavailable_and_raises(self):
+        """Quando Neo4j falha, seta _available=False e propaga exceção."""
+
+        class _FailingSession:
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *a):
+                return False
+
+            def run(self, query, **params):
+                raise RuntimeError("Neo4j offline")
+
+        class _FailingDriver:
+            def session(self):
+                return _FailingSession()
+
+        gm = GraphManager.__new__(GraphManager)
+        gm._available = True
+        gm.driver = _FailingDriver()
+        import pytest as _pytest
+        with _pytest.raises(RuntimeError, match="Neo4j offline"):
+            gm.ensure_constraints()
+        assert gm._available is False
+
+    # ----- get_entity -----
+
+    def test_get_entity_returns_dict_when_found(self):
+        """get_entity retorna _node_to_cytoscape quando nó existe."""
+
+        class _Node:
+            def get(self, key, default=None):
+                data = {
+                    "id": "e1", "value": "x.com", "type": "Domain",
+                    "properties": '{"k": "v"}',
+                }
+                return data.get(key, default)
+
+            def __getitem__(self, key):
+                return self.get(key)
+
+        class _GE_Session:
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *a):
+                return False
+
+            def run(self, query, **params):
+                return self
+
+            def single(self):
+                return {"n": _Node()}
+
+        class _GE_Driver:
+            def session(self):
+                return _GE_Session()
+
+        gm = GraphManager.__new__(GraphManager)
+        gm._available = True
+        gm.driver = _GE_Driver()
+        result = gm.get_entity("e1")
+        assert result is not None
+        assert result["data"]["id"] == "e1"
+
+    def test_get_entity_returns_none_when_missing(self):
+        """get_entity retorna None quando nó não existe."""
+
+        class _Missing_Session:
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *a):
+                return False
+
+            def run(self, query, **params):
+                return self
+
+            def single(self):
+                return None
+
+        class _Missing_Driver:
+            def session(self):
+                return _Missing_Session()
+
+        gm = GraphManager.__new__(GraphManager)
+        gm._available = True
+        gm.driver = _Missing_Driver()
+        assert gm.get_entity("e1") is None
+
+    def test_get_entity_unavailable_returns_none(self):
+        gm = GraphManager.__new__(GraphManager)
+        gm._available = False
+        gm.driver = _RecordingDriver()
+        assert gm.get_entity("e1") is None
+
+    # ----- clear -----
+
+    def test_clear_runs_detach_delete(self):
+        gm = _make_gm_available()
+        gm.clear()
+        assert len(gm.driver.sessions) == 1
+        assert "DETACH DELETE" in gm.driver.sessions[0].queries[0]
+
+    def test_clear_unavailable_is_noop(self):
+        gm = GraphManager.__new__(GraphManager)
+        gm._available = False
+        gm.driver = _RecordingDriver()
+        gm.clear()
+        assert gm.driver.sessions == []
+
+    # ----- get_subgraph -----
+
+    def test_get_subgraph_returns_elements(self):
+        """get_subgraph parseia nodes/rels do Neo4j."""
+
+        class _Node:
+            def __init__(self, id_, value, type_):
+                self._id = id_
+                self._value = value
+                self._type = type_
+
+            def get(self, key, default=None):
+                data = {
+                    "id": self._id, "value": self._value, "type": self._type,
+                    "properties": "{}",
+                }
+                return data.get(key, default)
+
+            def __getitem__(self, key):
+                return self.get(key)
+
+        class _Rel:
+            element_id = "e:1:abc"
+            type = "RESOLVES_TO"
+
+            def __init__(self, start, end):
+                self.start_node = start
+                self.end_node = end
+
+            def items(self):
+                return iter([("updated_at", "2025-01-01")])
+
+        class _Sub_Session:
+            def __init__(self):
+                self.records = [
+                    {
+                        "center": _Node("c1", "example.com", "Domain"),
+                        "nodes": [
+                            _Node("c1", "example.com", "Domain"),
+                            _Node("n1", "1.2.3.4", "IPAddress"),
+                        ],
+                        "rels": [_Rel(
+                            _Node("c1", "example.com", "Domain"),
+                            _Node("n1", "1.2.3.4", "IPAddress"),
+                        )],
+                    }
+                ]
+
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *a):
+                return False
+
+            def run(self, query, **params):
+                return self
+
+            def __iter__(self):
+                return iter(self.records)
+
+        class _Sub_Driver:
+            def session(self):
+                return _Sub_Session()
+
+        gm = GraphManager.__new__(GraphManager)
+        gm._available = True
+        gm.driver = _Sub_Driver()
+        result = gm.get_subgraph("example.com", depth=2)
+        assert "elements" in result
+        assert len(result["elements"]["nodes"]) == 2
+        assert len(result["elements"]["edges"]) == 1
+        assert result["elements"]["edges"][0]["data"]["label"] == "RESOLVES_TO"
+
+    def test_get_subgraph_clamps_depth(self):
+        """get_subgraph limita depth entre 1 e 5."""
+        gm = GraphManager.__new__(GraphManager)
+
+        class _Iter_Session:
+            queries = []
+
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *a):
+                return False
+
+            def run(self, query, **params):
+                _Iter_Session.queries.append(query)
+                return self
+
+            def __iter__(self):
+                return iter([])
+
+        class _Iter_Driver:
+            def session(self):
+                return _Iter_Session()
+
+        gm._available = True
+        gm.driver = _Iter_Driver()
+        _Iter_Session.queries = []
+
+        # depth=0 → clamped to 1
+        gm.get_subgraph("x", depth=0)
+        assert "*1..1" in _Iter_Session.queries[-1]
+        # depth=999 → clamped to 5
+        gm.get_subgraph("x", depth=999)
+        assert "*1..5" in _Iter_Session.queries[-1]
+
+    # ----- _node_to_cytoscape / _rel_to_cytoscape -----
+
+    def test_node_to_cytoscape_parses_json_properties(self):
+        """_node_to_cytoscape deserializa properties JSON."""
+
+        class _N:
+            def get(self, key, default=None):
+                data = {
+                    "id": "e1", "value": "x.com", "type": "Domain",
+                    "properties": '{"k": "v"}',
+                }
+                return data.get(key, default)
+
+            def __getitem__(self, key):
+                return self.get(key)
+
+        result = GraphManager._node_to_cytoscape(_N())
+        assert result["data"]["id"] == "e1"
+        assert result["data"]["k"] == "v"
+
+    def test_node_to_cytoscape_handles_invalid_json(self):
+        """Quando properties JSON é inválido, retorna dict vazio."""
+
+        class _N:
+            def get(self, key, default=None):
+                data = {
+                    "id": "e1", "value": "x", "type": "Domain",
+                    "properties": "not-json{",
+                }
+                return data.get(key, default)
+
+            def __getitem__(self, key):
+                return self.get(key)
+
+        result = GraphManager._node_to_cytoscape(_N())
+        # properties inválidas → {} (sem erro)
+        assert result["data"]["id"] == "e1"
+        assert "k" not in result["data"]
+
+    def test_rel_to_cytoscape_strips_metadata(self):
+        """_rel_to_cytoscape remove updated_at e outros metadados."""
+
+        class _StartNode:
+            def __getitem__(self, key):
+                return "src"
+
+        class _EndNode:
+            def __getitem__(self, key):
+                return "dst"
+
+        class _R:
+            element_id = "r:1:abc"
+            type = "LINKS"
+            start_node = _StartNode()
+            end_node = _EndNode()
+
+            def items(self):
+                return iter([("updated_at", "x"), ("weight", 0.5)])
+
+        result = GraphManager._rel_to_cytoscape(_R())
+        assert result["data"]["id"] == "r:1:abc"
+        assert result["data"]["label"] == "LINKS"
+        assert result["data"]["weight"] == 0.5
+        assert "updated_at" not in result["data"]
+
 
 # ===================== Validação de inputs =====================
 
@@ -647,3 +1324,67 @@ class TestAuthRequirements:
             json={"from_id": "a", "to_id": "b", "rel_type": "r"},
         )
         assert resp.status_code == 401
+
+
+# ===================== Transform validation errors =====================
+
+
+class TestTransformValidation:
+    """Cobertura de erros 400 do run_transform."""
+
+    def test_missing_transform_name_returns_400(
+        self, own_app, own_client, mock_graph
+    ):
+        _create_user(own_app, "alice@x.com")
+        token = _login(own_client, "alice@x.com")
+
+        resp = own_client.post(
+            "/api/run_transform",
+            json={
+                "entity_type": "Domain",
+                "value": "example.com",
+            },
+            headers=_bearer(token),
+        )
+        assert resp.status_code == 400
+        assert "transform_name" in resp.get_json()["error"]
+
+    def test_missing_entity_type_or_value_returns_400(
+        self, own_app, own_client, mock_graph
+    ):
+        _create_user(own_app, "alice@x.com")
+        token = _login(own_client, "alice@x.com")
+
+        # Falta entity_type
+        resp = own_client.post(
+            "/api/run_transform",
+            json={"transform_name": "fake", "value": "x"},
+            headers=_bearer(token),
+        )
+        assert resp.status_code == 400
+
+        # Falta value
+        resp = own_client.post(
+            "/api/run_transform",
+            json={"transform_name": "fake", "entity_type": "Domain"},
+            headers=_bearer(token),
+        )
+        assert resp.status_code == 400
+
+    def test_unknown_entity_type_returns_400(
+        self, own_app, own_client, mock_graph
+    ):
+        _create_user(own_app, "alice@x.com")
+        token = _login(own_client, "alice@x.com")
+
+        resp = own_client.post(
+            "/api/run_transform",
+            json={
+                "transform_name": "fake",
+                "entity_type": "NonExistent",
+                "value": "x",
+            },
+            headers=_bearer(token),
+        )
+        assert resp.status_code == 400
+        assert "desconhecido" in resp.get_json()["error"].lower()
