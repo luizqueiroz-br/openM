@@ -63,6 +63,74 @@ const Modal = {
         });
     },
 
+    conflictResolve({ currentVersion, yourVersion, currentSnapshot, onReload, onOverwrite, onCancel }) {
+        /**
+         * Modal para resolver conflito de versão (optimistic locking,
+         * issue #37). Disparado quando o PUT recebe 409 — significa que
+         * outra aba/user salvou uma versão mais recente.
+         *
+         * 3 opções:
+         * - Cancelar:     fecha modal, mantém local, marca como não salvo
+         * - Recarregar:   substitui grafo com current_snapshot do servidor
+         * - Sobrescrever: força PUT sem If-Match (atômico do lado servidor)
+         */
+        const body = document.createElement('div');
+        body.innerHTML = `
+            <p>
+                <strong>Esta investigation foi modificada em outra aba, janela ou por outro usuário.</strong>
+            </p>
+            <p style="margin-top: 0.8rem;">
+                Sua versão: <code>${yourVersion}</code><br>
+                Versão atual no servidor: <code>${currentVersion}</code>
+            </p>
+            <p style="margin-top: 0.8rem; color: var(--text-dim, #888); font-size: 0.9rem;">
+                <strong>Recarregar</strong> perde suas alterações locais.<br>
+                <strong>Sobrescrever</strong> força sua versão (descarta mudanças do servidor).
+            </p>
+        `;
+
+        const footer = document.createElement('div');
+        footer.style.display = 'flex';
+        footer.style.gap = '0.5rem';
+        footer.style.justifyContent = 'flex-end';
+        footer.innerHTML = `
+            <button class="btn cancel">Cancelar</button>
+            <button class="btn reload">Recarregar</button>
+            <button class="btn danger overwrite">Sobrescrever</button>
+        `;
+
+        const { close, modal } = this.open({
+            title: 'Conflito de versão detectado',
+            body,
+            footer,
+            onClose: () => {
+                // Se fechou sem escolher (X ou backdrop), trata como Cancelar
+                // — comportamento conservador (preserva mudanças locais).
+                if (onCancel) onCancel();
+            },
+        });
+
+        modal.querySelector('.cancel').addEventListener('click', () => {
+            if (onCancel) onCancel();
+            close();
+        });
+        modal.querySelector('.reload').addEventListener('click', () => {
+            if (onReload) onReload();
+            close();
+        });
+        modal.querySelector('.overwrite').addEventListener('click', async () => {
+            // Desabilita botão enquanto processa (evita duplo clique)
+            const btn = modal.querySelector('.overwrite');
+            btn.disabled = true;
+            btn.textContent = 'Sobrescrevendo...';
+            try {
+                if (onOverwrite) await onOverwrite();
+            } finally {
+                close();
+            }
+        });
+    },
+
     createEdge({ fromNode, toNode, onCreate }) {
         const body = document.createElement('div');
         body.innerHTML = `

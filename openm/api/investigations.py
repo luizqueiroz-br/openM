@@ -197,13 +197,25 @@ def get_investigation(investigation_id: int):
 @require_role("admin", "analyst")
 def update_investigation(investigation_id: int):
     """
-    PUT /api/investigations/<id>
+    PUT /api/investigations/<id> — atualização parcial.
 
-    Atualização parcial. Campos aceitos: title, description, graph_snapshot.
-    Quando graph_snapshot é enviado, last_auto_save_at é setado (auto-save).
+    Optimistic locking (issue #37):
+    - Header opcional ``If-Match: "<version>"`` ativa checagem de conflito
+      (RFC 9110 — valor vem quoted com aspas duplas; servidor remove).
+    - Sem header: comportamento legado (sem check; versão auto-incrementa).
+    - Com header + version mismatch: 409 Conflict com ``current_snapshot``
+      (frontend usa pra modal "Recarregar / Sobrescrever / Cancelar").
 
-    Resposta inclui 'saved_at' (timestamp do save) pra o frontend mostrar
-    "Salvo às HH:MM" no indicador visual.
+    Resposta 409:
+        {
+            "error": "conflict",
+            "current_version": 3,
+            "your_version": 2,
+            "current_snapshot": {...}  # snapshot atual do servidor
+        }
+
+    Resposta 200 inclui ``investigation.version`` (incrementado).
+    Archive/unarchive/delete NÃO mexem na versão — são idempotentes.
     """
     investigation = _owned_or_404(investigation_id)
     if investigation is None:
@@ -215,18 +227,50 @@ def update_investigation(investigation_id: int):
     except ValidationError as exc:
         return jsonify({"error": exc.errors()}), 400
 
+    # If-Match header (opcional). RFC 9110 § 13.1.1: valor vem quoted.
+    # Aceitamos com e sem aspas pra ser lenient com clientes não-RFC.
+    if_match_raw = request.headers.get("If-Match", "").strip().strip('"')
+    expected_version: int | None = None
+    if if_match_raw:
+        try:
+            expected_version = int(if_match_raw)
+        except ValueError:
+            return jsonify({
+                "error": "If-Match header deve ser um número inteiro"
+            }), 400
+
     # Validação mínima do graph_snapshot
     if payload.graph_snapshot is not None:
         if not isinstance(payload.graph_snapshot, dict):  # pragma: no cover
-            # Defesa redundante: pydantic já garante dict[str, Any]. Este
-            # isinstance só dispara se alguém passar um Mock ou similar.
             return jsonify({"error": "graph_snapshot deve ser um objeto"}), 400
         if "nodes" not in payload.graph_snapshot or "edges" not in payload.graph_snapshot:
             return jsonify({
                 "error": "graph_snapshot deve ter 'nodes' e 'edges'"
             }), 400
 
-    # Aplica mudanças (só as enviadas)
+    # Detecta conflito via checagem da versão atual (pre-check).
+    # O check atômico acontece depois no UPDATE.
+    if expected_version is not None and investigation.version != expected_version:
+        # 409 Conflict — não faz update, retorna snapshot do servidor.
+        log_action(
+            action=ACTION_INVESTIGATION_UPDATE,
+            target_type="investigation",
+            target_id=str(investigation.id),
+            user_id=g.user.id,
+            metadata={
+                "conflict": True,
+                "your_version": expected_version,
+                "current_version": investigation.version,
+            },
+        )
+        return jsonify({
+            "error": "conflict",
+            "current_version": investigation.version,
+            "your_version": expected_version,
+            "current_snapshot": investigation.graph_snapshot,
+        }), 409
+
+    # Aplica mudanças (sem If-Match ou com versão correta).
     changed_fields: list[str] = []
     if payload.title is not None and payload.title != investigation.title:
         changed_fields.append("title")
@@ -239,30 +283,80 @@ def update_investigation(investigation_id: int):
     if payload.graph_snapshot is not None:
         changed_fields.append("graph_snapshot")
         investigation.graph_snapshot = payload.graph_snapshot
-        # Auto-save: registra o momento
         investigation.last_auto_save_at = datetime.now(timezone.utc)
-        # Tamanho aproximado como metadado (não o conteúdo!).
         try:
             snapshot_size_kb = round(
                 len(str(payload.graph_snapshot).encode("utf-8")) / 1024, 2
             )
         except Exception:  # noqa: BLE001  # pragma: no cover
-            # Defesa: snapshot não-conversível a str (raríssimo — pydantic
-            # já validou como dict). Não bloqueia a request.
             snapshot_size_kb = None
 
-    _save_investigation(investigation)
+    # Conditional UPDATE atômico: WHERE version = current
+    # Garante que 2 PUTs simultâneos com mesma versão: 1 vence, outro
+    # detecta rowcount=0 e retorna 409 (race condition).
+    current_version = investigation.version
+    new_version = current_version + 1
+    update_values = {
+        Investigation.version: new_version,
+    }
+    # Atualiza só os campos que vieram no payload (mantém valor atual).
+    if payload.title is not None:
+        update_values[Investigation.title] = investigation.title
+    if payload.description is not None:
+        update_values[Investigation.description] = investigation.description
+    if payload.graph_snapshot is not None:
+        update_values[Investigation.graph_snapshot] = investigation.graph_snapshot
+        update_values[Investigation.last_auto_save_at] = investigation.last_auto_save_at
 
-    # Auditoria: atualização de investigação. Registramos quais campos
-    # mudaram + tamanho do snapshot (não o conteúdo).
+    rows_updated = (
+        db.session.query(Investigation)
+        .filter(
+            Investigation.id == investigation_id,
+            Investigation.version == current_version,
+        )
+        .update(update_values, synchronize_session=False)
+    )
+
+    if rows_updated == 0 and expected_version is not None:
+        # Outra transação incrementou a versão entre nosso SELECT e UPDATE.
+        # Recarrega e retorna 409.
+        db.session.rollback()
+        investigation = _owned_or_404(investigation_id)
+        if investigation is None:
+            return jsonify({"error": "not found"}), 404
+        log_action(
+            action=ACTION_INVESTIGATION_UPDATE,
+            target_type="investigation",
+            target_id=str(investigation.id),
+            user_id=g.user.id,
+            metadata={
+                "conflict": True,
+                "your_version": expected_version,
+                "current_version": investigation.version,
+                "race": True,
+            },
+        )
+        return jsonify({
+            "error": "conflict",
+            "current_version": investigation.version,
+            "your_version": expected_version,
+            "current_snapshot": investigation.graph_snapshot,
+        }), 409
+
+    db.session.commit()
+
+    # Atualiza objeto em memória para refletir a nova versão.
+    investigation.version = new_version
+
     log_action(
         action=ACTION_INVESTIGATION_UPDATE,
         target_type="investigation",
-        target_id=str(investigation.id),
+        target_id=str(investigation_id),
         user_id=g.user.id,
         metadata={
             "changed_fields": changed_fields,
             "snapshot_size_kb": snapshot_size_kb,
+            "version": new_version,
         },
     )
 

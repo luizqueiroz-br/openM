@@ -177,10 +177,13 @@ const OpenMAPI = {
 
     getInvestigation: (id) => api(`/investigations/${id}`),
 
-    updateInvestigation: (id, changes) =>
+    updateInvestigation: (id, changes, { ifMatch } = {}) =>
         api(`/investigations/${id}`, {
             method: 'PUT',
             body: JSON.stringify(changes),
+            headers: ifMatch !== undefined && ifMatch !== null
+                ? { 'If-Match': `"${ifMatch}"` }
+                : undefined,
         }),
 
     archiveInvestigation: (id) =>
