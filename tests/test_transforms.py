@@ -193,6 +193,82 @@ def test_shodan_transform_simulation_fallback():
     assert any(r["properties"].get("provenance") == "shodan" for r in result.relationships)
 
 
+def test_shodan_transform_domain_unresolvable():
+    """Domain que não resolve → TransformResult vazio (linha 39)."""
+    domain = Domain(value="invalid.invalid", properties={})
+    transform = ShodanTransform()
+
+    with patch(
+        "openm.transforms.shodan.ShodanService.resolve_domain",
+        return_value=None,
+    ):
+        result = transform.run(domain)
+
+    assert result.entities == []
+    assert result.relationships == []
+
+
+def test_shodan_transform_duplicate_ports_skipped():
+    """Portas duplicadas/None no loop de services (linha 80)."""
+    ip = IPAddress(value="1.1.1.1")
+    transform = ShodanTransform()
+
+    with patch(
+        "openm.transforms.shodan.ShodanService.investigate_host",
+        return_value={
+            "ip": "1.1.1.1",
+            "source": "shodan",
+            "ports": [80, 443],
+            "services": [
+                {"port": 80, "transport": "tcp", "product": "nginx", "version": "", "banner": "", "cpe": []},
+                {"port": 80, "transport": "tcp", "product": "apache", "version": "", "banner": "", "cpe": []},
+                {"port": None, "transport": "tcp", "product": "", "version": "", "banner": "", "cpe": []},
+                {"port": 443, "transport": "tcp", "product": "nginx", "version": "", "banner": "", "cpe": []},
+            ],
+            "location": {"country": "US", "city": ""},
+            "organization": "TestOrg",
+            "os": "",
+            "tags": [],
+        },
+    ):
+        result = transform.run(ip)
+
+    # Apenas 2 Device (portas 80 e 443) + 1 metadata = 3 entidades
+    # Porta None e duplicata 80 são puladas
+    device_entities = [e for e in result.entities if e.type == "Device" and e.properties.get("role") != "host_metadata"]
+    assert len(device_entities) == 2
+    ports = [e.properties["port"] for e in device_entities]
+    assert sorted(ports) == [80, 443]
+
+
+def test_shodan_transform_no_location_or_org():
+    """Sem location.country e sem org → RUNS edge não é criado."""
+    ip = IPAddress(value="1.1.1.1")
+    transform = ShodanTransform()
+
+    with patch(
+        "openm.transforms.shodan.ShodanService.investigate_host",
+        return_value={
+            "ip": "1.1.1.1",
+            "source": "shodan",
+            "ports": [80],
+            "services": [
+                {"port": 80, "transport": "tcp", "product": "nginx", "version": "", "banner": "", "cpe": []},
+            ],
+            "location": {"country": "", "city": ""},
+            "organization": "",
+            "os": "",
+            "tags": [],
+        },
+    ):
+        result = transform.run(ip)
+
+    # Apenas 1 Device (porta 80), sem metadata
+    assert len(result.entities) == 1
+    assert len(result.relationships) == 1  # apenas EXPOSES
+    assert result.relationships[0]["type"] == "EXPOSES"
+
+
 # ====================================================================
 # Whois Transform
 # ====================================================================
