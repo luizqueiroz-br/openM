@@ -5,6 +5,7 @@ from typing import Any, Dict, Optional
 
 import requests
 
+from openm.core.transform import increment_api_call_counter
 from openm.extensions import db
 from openm.models.api_key import ApiKey
 
@@ -59,6 +60,7 @@ class ShodanService:
         try:
             resp = requests.get(url, params=params, timeout=10)
             resp.raise_for_status()
+            increment_api_call_counter()
             data = resp.json()
             return data.get(domain)
         except requests.RequestException as exc:
@@ -88,6 +90,7 @@ class ShodanService:
         try:
             resp = requests.get(url, params=params, timeout=15)
             resp.raise_for_status()
+            increment_api_call_counter()
             return resp.json()
         except requests.RequestException as exc:
             logger.warning("Shodan host query falhou para %s: %s", ip, exc)

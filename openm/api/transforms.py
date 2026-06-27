@@ -1,14 +1,16 @@
+from datetime import datetime, timedelta, timezone
+from typing import Any
+
 from flask import Blueprint, g, jsonify, make_response, request
 
 from openm.core.auth import require_auth, require_role
-from openm.core.audit import log_action, ACTION_TRANSFORM_RUN
+from openm.core.audit import ACTION_TRANSFORM_RUN, log_action
 from openm.core.entity import ENTITY_CLASSES
 from openm.core.transform import TransformRegistry
-from openm.core.transform_cache import (
-    get_cached_result,
-    set_cached_result,
-)
+from openm.core.transform_cache import get_cached_result, set_cached_result
+from openm.models.audit_log import AuditLog
 from openm.utils.neo4j_client import get_graph_manager
+
 
 transforms_bp = Blueprint("transforms", __name__, url_prefix="/api")
 
@@ -112,7 +114,7 @@ def run_transform():
 
     if cached_payload is not None:
         # Cache HIT: persiste input/relationships no Neo4j (sem re-executar)
-        # para que ownership e audit reflitam a execução corrente.
+        # para que ownership e audit reflitam a execucao corrente.
         gm = get_graph_manager()
         if gm:
             from openm.core.entity import ENTITY_CLASSES as _EC
@@ -150,7 +152,11 @@ def run_transform():
                     is_admin=is_admin_hit,
                 )
 
-            # Audit mesmo em HIT (executar é uma ação do usuário)
+            # Audit mesmo em HIT (executar e uma acao do usuario).
+            # Metricas: em cache hit nao executamos o transform, entao
+            # duration e desconhecido (0), api_calls=0, status=success.
+            entities_count = len(cached_payload.get("entities", []))
+            relationships_count = len(cached_payload.get("relationships", []))
             log_action(
                 action=ACTION_TRANSFORM_RUN,
                 target_type="entity",
@@ -160,10 +166,11 @@ def run_transform():
                     "transform_name": transform_name,
                     "entity_type": entity_type,
                     "cache": "HIT",
-                    "new_entities_count": len(cached_payload.get("entities", [])),
-                    "new_relationships_count": len(
-                        cached_payload.get("relationships", [])
-                    ),
+                    "new_entities_count": entities_count,
+                    "new_relationships_count": relationships_count,
+                    "duration_ms": 0,
+                    "status": "success",
+                    "api_calls": 0,
                 },
             )
 
@@ -186,6 +193,7 @@ def run_transform():
 
     transform = transform_class()
     result = transform.run(entity)
+    metrics = getattr(result, "_metrics", None)
 
     gm = get_graph_manager()
     gm.merge_entity(entity)
@@ -217,23 +225,34 @@ def run_transform():
         if created:
             rels.append(rel)
 
-    # Auditoria: execução de transform. Metadado leve (contagens) — sem
-    # expor valores das entidades resultantes (podem ser PII / IOC sensível).
+    # Auditoria: execucao de transform. Metadado leve (contagens) — sem
+    # expor valores das entidades resultantes (podem ser PII / IOC sensivel).
+    # Inclui metricas de duracao, status, chamadas externas e cache.
+    audit_metadata = {
+        "transform_name": transform_name,
+        "entity_type": entity_type,
+        "cache": "MISS",
+        "new_entities_count": new_entities_count,
+        "new_relationships_count": len(rels),
+    }
+    if metrics is not None:
+        audit_metadata.update({
+            "duration_ms": metrics.duration_ms,
+            "status": metrics.status,
+            "api_calls": metrics.api_calls,
+        })
+        if metrics.error_message:
+            audit_metadata["error_message"] = metrics.error_message
+
     log_action(
         action=ACTION_TRANSFORM_RUN,
         target_type="entity",
         target_id=entity_id or entity.id,
         user_id=g.user.id,
-        metadata={
-            "transform_name": transform_name,
-            "entity_type": entity_type,
-            "cache": "MISS",
-            "new_entities_count": new_entities_count,
-            "new_relationships_count": len(rels),
-        },
+        metadata=audit_metadata,
     )
 
-    # Monta payload de resposta (mesmo formato que será cacheado).
+    # Monta payload de resposta (mesmo formato que sera cacheado).
     response_payload = {
         "input": entity.to_dict(),
         "entities": [e.to_dict() for e in result.entities],
@@ -250,3 +269,171 @@ def run_transform():
     response = make_response(jsonify(response_payload), 200)
     response.headers["X-Cache"] = cache_status
     return response
+
+
+@transforms_bp.route("/transforms/metrics", methods=["GET"])
+@require_auth
+@require_role("admin")
+def transform_metrics():
+    """
+    GET /api/transforms/metrics
+
+    Retorna metricas agregadas de execucao de transforms a partir do
+    audit_log (acao ``transform.run``). Admin-only.
+
+    Query params:
+        - transform_name: filtrar por transform especifico.
+        - entity_type: filtrar por tipo de entidade de entrada.
+        - user_id: filtrar por usuario.
+        - period_days: janela de dias (default 7, max 90).
+
+    Resposta:
+        {
+            "period_days": int,
+            "filters": {...},
+            "summary": {
+                "total_runs": int,
+                "success_count": int,
+                "error_count": int,
+                "timeout_count": int,
+                "quota_exceeded_count": int,
+                "cache_hit_count": int,
+                "avg_duration_ms": float,
+                "total_api_calls": int,
+                "avg_api_calls": float,
+            },
+            "by_transform": [
+                {
+                    "transform_name": str,
+                    "total_runs": int,
+                    "success_count": int,
+                    "error_count": int,
+                    "avg_duration_ms": float,
+                    "total_api_calls": int,
+                }
+            ]
+        }
+    """
+    try:
+        period_days = min(int(request.args.get("period_days", 7)), 90)
+    except (ValueError, TypeError):
+        period_days = 7
+
+    transform_name = request.args.get("transform_name")
+    entity_type = request.args.get("entity_type")
+    user_id_raw = request.args.get("user_id")
+    user_id = None
+    if user_id_raw is not None:
+        try:
+            user_id = int(user_id_raw)
+        except (ValueError, TypeError):
+            pass
+
+    since = datetime.now(timezone.utc) - timedelta(days=period_days)
+
+    query = AuditLog.query.filter(
+        AuditLog.action == ACTION_TRANSFORM_RUN,
+        AuditLog.created_at >= since,
+    )
+    if transform_name:
+        # JSONB path nao e portavel para SQLite; filtramos em Python.
+        pass
+    if user_id is not None:
+        query = query.filter(AuditLog.user_id == user_id)
+
+    rows = query.all()
+    filtered_rows = []
+    for row in rows:
+        meta = row.meta or {}
+        if transform_name and meta.get("transform_name") != transform_name:
+            continue
+        if entity_type and meta.get("entity_type") != entity_type:
+            continue
+        filtered_rows.append(row)
+
+    summary = {
+        "total_runs": 0,
+        "success_count": 0,
+        "error_count": 0,
+        "timeout_count": 0,
+        "quota_exceeded_count": 0,
+        "cache_hit_count": 0,
+        "avg_duration_ms": 0.0,
+        "total_api_calls": 0,
+        "avg_api_calls": 0.0,
+    }
+    durations: list[float] = []
+    api_calls_values: list[int] = []
+    by_transform: dict[str, dict[str, Any]] = {}
+
+    for row in filtered_rows:
+        meta = row.meta or {}
+        status = meta.get("status", "success")
+        cache = meta.get("cache", "MISS")
+        duration = meta.get("duration_ms", 0) or 0
+        api_calls = meta.get("api_calls", 0) or 0
+        name = meta.get("transform_name", "unknown")
+
+        summary["total_runs"] += 1
+        if status == "success":
+            summary["success_count"] += 1
+        elif status == "error":
+            summary["error_count"] += 1
+        elif status == "timeout":
+            summary["timeout_count"] += 1
+        elif status == "quota_exceeded":
+            summary["quota_exceeded_count"] += 1
+
+        if cache == "HIT":
+            summary["cache_hit_count"] += 1
+
+        durations.append(float(duration))
+        api_calls_values.append(int(api_calls))
+        summary["total_api_calls"] += int(api_calls)
+
+        bucket = by_transform.setdefault(name, {
+            "transform_name": name,
+            "total_runs": 0,
+            "success_count": 0,
+            "error_count": 0,
+            "timeout_count": 0,
+            "quota_exceeded_count": 0,
+            "avg_duration_ms": 0.0,
+            "total_api_calls": 0,
+            "runs": [],
+        })
+        bucket["total_runs"] += 1
+        if status == "success":
+            bucket["success_count"] += 1
+        elif status == "error":
+            bucket["error_count"] += 1
+        elif status == "timeout":
+            bucket["timeout_count"] += 1
+        elif status == "quota_exceeded":
+            bucket["quota_exceeded_count"] += 1
+        bucket["total_api_calls"] += int(api_calls)
+        bucket["runs"].append(float(duration))
+
+    if durations:
+        summary["avg_duration_ms"] = round(sum(durations) / len(durations), 2)
+    if api_calls_values:
+        summary["avg_api_calls"] = round(sum(api_calls_values) / len(api_calls_values), 2)
+
+    by_transform_list: list[dict[str, Any]] = []
+    for bucket in by_transform.values():
+        runs = bucket.pop("runs")
+        bucket["avg_duration_ms"] = round(sum(runs) / len(runs), 2) if runs else 0.0
+        by_transform_list.append(bucket)
+
+    by_transform_list.sort(key=lambda x: x["total_runs"], reverse=True)
+
+    return jsonify({
+        "period_days": period_days,
+        "filters": {
+            "transform_name": transform_name,
+            "entity_type": entity_type,
+            "user_id": user_id,
+        },
+        "summary": summary,
+        "by_transform": by_transform_list,
+    })

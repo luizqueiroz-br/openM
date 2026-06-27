@@ -5,6 +5,7 @@ from typing import Any, Dict, List, Optional
 
 import requests
 
+from openm.core.transform import increment_api_call_counter
 from openm.extensions import db
 from openm.models.api_key import ApiKey
 
@@ -79,9 +80,11 @@ class VirusTotalService:
                 return None
 
             if resp.status_code == 200:
+                increment_api_call_counter()
                 return resp
             if resp.status_code == 404:
                 # Sem dados — não é falha retentável.
+                increment_api_call_counter()
                 return resp
             if resp.status_code == 429:
                 last_resp = resp
@@ -103,12 +106,14 @@ class VirusTotalService:
                 time.sleep(wait)
                 continue
             if resp.status_code in (401, 403):
+                increment_api_call_counter()
                 logger.warning(
                     "VirusTotal chave inválida para %s (status %d)",
                     url, resp.status_code,
                 )
                 return None
             # Outros 4xx/5xx: log + None
+            increment_api_call_counter()
             logger.warning(
                 "VirusTotal resposta não tratada para %s: status=%d",
                 url, resp.status_code,

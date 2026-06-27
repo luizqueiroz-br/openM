@@ -4,6 +4,7 @@ from typing import Any, Dict, List, Optional
 
 import requests
 
+from openm.core.transform import increment_api_call_counter
 from openm.extensions import db
 from openm.models.api_key import ApiKey
 
@@ -75,25 +76,30 @@ class HibpService:
             return None
 
         if resp.status_code == 404:
+            increment_api_call_counter()
             # 404 = nenhuma breach encontrada (email limpo ou breach
             # inexistente). Nao e erro, retornamos a Response para que
             # os callers tratem como lista vazia.
             return resp
         if resp.status_code in (401, 403):
+            increment_api_call_counter()
             logger.warning(
                 "HIBP chave invalida ou sem acesso para %s (status %d)",
                 url, resp.status_code,
             )
             return None
         if resp.status_code == 429:
+            increment_api_call_counter()
             logger.warning("HIBP rate-limit para %s", url)
             return None
         if resp.status_code != 200:
+            increment_api_call_counter()
             logger.warning(
                 "HIBP resposta nao tratada para %s: status=%d",
                 url, resp.status_code,
             )
             return None
+        increment_api_call_counter()
         return resp
 
     @classmethod

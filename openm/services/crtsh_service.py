@@ -5,6 +5,8 @@ import urllib.error
 import urllib.request
 from typing import List, Optional
 
+from openm.core.transform import increment_api_call_counter
+
 logger = logging.getLogger(__name__)
 
 DEFAULT_TIMEOUT = 10.0
@@ -41,6 +43,7 @@ def query_crtsh(domain: str, timeout: float = DEFAULT_TIMEOUT) -> Optional[List[
     try:
         with urllib.request.urlopen(req, timeout=timeout) as resp:
             payload = resp.read().decode("utf-8")
+        increment_api_call_counter()
     except (urllib.error.URLError, urllib.error.HTTPError, OSError) as exc:
         logger.warning("crt.sh falhou para %s: %s", domain, exc)
         return None
