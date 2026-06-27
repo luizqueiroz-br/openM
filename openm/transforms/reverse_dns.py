@@ -27,6 +27,7 @@ class ReverseDnsTransform(Transform):
         "Resolve um endereço IP para seu nome canônico via registro PTR. "
         "Útil para descobrir domínios hospedados em um IP específico."
     )
+    cache_ttl_seconds = 3600  # 1h — PTR records mudam raramente
 
     def _run(self, entity: Entity) -> TransformResult:
         result = reverse_dns(entity.value)

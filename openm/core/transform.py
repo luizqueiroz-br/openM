@@ -32,6 +32,10 @@ class Transform(ABC):
     # dropdown de API Keys no frontend (issue #6 follow-up).
     service_name: Optional[str] = None  # ex: "shodan", "virustotal"
     service_display: Optional[str] = None  # ex: "Shodan", "VirusTotal"
+    # TTL do cache de resultado em segundos. ``0`` desabilita o cache.
+    # O endpoint /api/run_transform consulta o cache antes de executar
+    # e salva o resultado depois — ver openm.core.transform_cache.
+    cache_ttl_seconds: int = 0
 
     def run(self, entity: Entity) -> TransformResult:
         """

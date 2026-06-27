@@ -25,6 +25,7 @@ class CheckFraudEmailTransform(Transform):
     )
     service_name = "emailrep"
     service_display = "EmailRep.io"
+    cache_ttl_seconds = 3600  # 1h — risco pode mudar rápido
 
     def _run(self, entity: Entity) -> TransformResult:
         intel = ThreatIntelService.investigate_email(entity.value)

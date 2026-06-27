@@ -34,6 +34,7 @@ class VirusTotalTransform(Transform):
     )
     service_name = "virustotal"
     service_display = "VirusTotal"
+    cache_ttl_seconds = 21600  # 6h — API paga, queremos freshness vs quota
 
     def _run(self, entity: Entity) -> TransformResult:
         intel = VirusTotalService.investigate_entity(

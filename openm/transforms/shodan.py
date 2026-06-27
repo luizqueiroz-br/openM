@@ -26,6 +26,7 @@ class ShodanTransform(Transform):
     )
     service_name = "shodan"
     service_display = "Shodan"
+    cache_ttl_seconds = 21600  # 6h — API paga, queremos freshness vs quota
 
     def _run(self, entity: Entity) -> TransformResult:
         service = ShodanService()

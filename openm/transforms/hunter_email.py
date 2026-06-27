@@ -31,6 +31,7 @@ class HunterEmailTransform(Transform):
     # no dropdown por causa da deduplicacao, mas mantemos um label
     # explicito para consistencia caso o registry evolua.
     service_display = "Hunter.io"
+    cache_ttl_seconds = 21600  # 6h — API paga, queremos freshness vs quota
 
     def _run(self, entity: Entity) -> TransformResult:
         data = HunterService.investigate_email(entity.value)
