@@ -102,13 +102,23 @@ def test_clear_cache_for_removes_entry(tmp_path, monkeypatch):
 
 
 def test_cache_survives_module_reload(tmp_path, monkeypatch):
-    """Cache persistido é recuperado após reload do módulo."""
+    """Cache persistido é recuperado após reload do módulo.
+
+    Simula um reload resetando o singleton — o cache no disco
+    (apontado por OPENM_CACHE_DB) deve continuar acessível.
+    """
     from openm.core import transform_cache as tc
 
     db = str(tmp_path / "cache.db")
+    # IMPORTANTE: resetar o singleton ANTES de set/get para garantir
+    # que o cache seja criado lendo o env var (tmp_path). Sem isso,
+    # set/get usaria o singleton ja inicializado de um teste anterior.
+    monkeypatch.setattr(tc, "_default_cache", None)
     monkeypatch.setenv("OPENM_CACHE_DB", db)
 
     tc.set_cached_result("whois", "Domain", "x.com", {"a": 1}, ttl_seconds=60)
+    # Simula reload: zera o singleton. _get_cache() recriara lendo o
+    # env var (mesmo path), mas o conteudo persistido em disco continua.
     monkeypatch.setattr(tc, "_default_cache", None)
 
     result = tc.get_cached_result("whois", "Domain", "x.com")
