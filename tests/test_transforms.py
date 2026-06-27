@@ -2951,3 +2951,482 @@ def test_email_to_domain_extract_domain_unit():
     assert _extract_domain("user@example.com.") == ""
     assert _extract_domain("user@@example.com") == ""
     assert _extract_domain("user@a@b.com") == ""
+
+
+# ====================================================================
+# SSL Certificate Transform (issue #73)
+# ====================================================================
+
+
+MOCK_SSL_DATA = {
+    "issuer": {
+        "common": "DigiCert TLS Hybrid ECC SHA384 2020 CA1",
+        "organization": "DigiCert Inc",
+        "country": "US",
+    },
+    "subject": {
+        "common": "www.example.com",
+        "organization": "Example Corp",
+        "country": "US",
+    },
+    "san_domains": [
+        "example.com",
+        "www.example.com",
+        "api.example.com",
+        "*.cdn.example.com",
+        "mail.example.com",
+    ],
+    "valid_from": "Jan 15 00:00:00 2025 GMT",
+    "valid_until": "Feb 15 23:59:59 2026 GMT",
+    "fingerprint_sha256": "a" * 64,
+    "version": 3,
+    "serial_number": "0123456789ABCDEF",
+    "raw_pem": "-----BEGIN CERTIFICATE-----\nMIIB...\n-----END CERTIFICATE-----",
+    "source": "ssl",
+}
+
+
+def test_ssl_cert_transform_with_san_and_issuer():
+    """Domain com SAN list + issuer → 1 Domain + 1 Device + N SAN edges."""
+    from openm.transforms.ssl_cert import SslCertTransform
+
+    domain = Domain(value="example.com", properties={})
+    transform = SslCertTransform()
+
+    with patch(
+        "openm.transforms.ssl_cert.inspect_ssl",
+        return_value=MOCK_SSL_DATA,
+    ):
+        result = transform.run(domain)
+
+    # 1 Domain pai (enriquecido) + 1 Device (issuer) + 4 SAN domains
+    # (www.api.mail sao diferentes de example.com; *.cdn.example.com
+    #  vira cdn.example.com; example.com e o proprio parent e pulado)
+    assert len(result.entities) == 6
+
+    parent = [e for e in result.entities if e.value == "example.com"][0]
+    assert parent.type == "Domain"
+    assert parent.properties["ssl_issuer_cn"] == "DigiCert TLS Hybrid ECC SHA384 2020 CA1"
+    assert parent.properties["ssl_issuer_org"] == "DigiCert Inc"
+    assert parent.properties["ssl_issuer_country"] == "US"
+    assert parent.properties["ssl_subject_cn"] == "www.example.com"
+    assert parent.properties["ssl_valid_from"] == "Jan 15 00:00:00 2025 GMT"
+    assert parent.properties["ssl_valid_until"] == "Feb 15 23:59:59 2026 GMT"
+    assert parent.properties["ssl_fingerprint_sha256"] == "a" * 64
+    assert parent.properties["ssl_version"] == 3
+    assert parent.properties["ssl_serial_number"] == "0123456789ABCDEF"
+    assert parent.properties["ssl_san_count"] == 4
+    assert parent.properties["ssl_available"] is True
+    assert "ssl_checked_at" in parent.properties
+
+    # Device do issuer
+    issuer = [e for e in result.entities if e.type == "Device"][0]
+    assert issuer.value == "DigiCert TLS Hybrid ECC SHA384 2020 CA1"
+    assert issuer.properties["role"] == "certificate_authority"
+    assert issuer.properties["issuer_org"] == "DigiCert Inc"
+    assert issuer.properties["issuer_country"] == "US"
+
+    # 4 SAN domains (example.com pulado por ser o parent; *.cdn.example.com -> cdn.example.com)
+    san_domains = [e for e in result.entities
+                   if e.type == "Domain" and e.value != "example.com"]
+    san_values = {e.value for e in san_domains}
+    assert san_values == {
+        "www.example.com",
+        "api.example.com",
+        "cdn.example.com",  # wildcard *.cdn.example.com normalizado
+        "mail.example.com",
+    }
+    for san in san_domains:
+        assert san.properties["is_san"] is True
+        assert san.properties["parent_domain"] == "example.com"
+        assert san.properties["source"] == "ssl"
+
+    # Edges: 1 SSL_ISSUED_BY + 4 SSL_SAN = 5
+    assert len(result.relationships) == 5
+    ssl_issued_by = [r for r in result.relationships if r["type"] == "SSL_ISSUED_BY"]
+    ssl_san = [r for r in result.relationships if r["type"] == "SSL_SAN"]
+    assert len(ssl_issued_by) == 1
+    assert len(ssl_san) == 4
+    assert ssl_issued_by[0]["from_id"] == domain.id
+    assert ssl_issued_by[0]["to_id"] == issuer.id
+    assert all(r["from_id"] == domain.id for r in ssl_san)
+
+
+def test_ssl_cert_transform_no_san_entries():
+    """Cert sem SAN → apenas Domain enriquecido + Device do issuer."""
+    from openm.transforms.ssl_cert import SslCertTransform
+
+    cert = {**MOCK_SSL_DATA, "san_domains": []}
+    domain = Domain(value="example.com", properties={})
+    transform = SslCertTransform()
+
+    with patch(
+        "openm.transforms.ssl_cert.inspect_ssl",
+        return_value=cert,
+    ):
+        result = transform.run(domain)
+
+    # 1 Domain + 1 Device (issuer), sem SAN domains
+    assert len(result.entities) == 2
+    assert any(e.type == "Device" for e in result.entities)
+    assert all(
+        e.value == "example.com" or e.type == "Device"
+        for e in result.entities
+    )
+    # ssl_san_count = 0
+    parent = [e for e in result.entities if e.value == "example.com"][0]
+    assert parent.properties["ssl_san_count"] == 0
+    # Apenas 1 edge (SSL_ISSUED_BY)
+    assert len(result.relationships) == 1
+    assert result.relationships[0]["type"] == "SSL_ISSUED_BY"
+
+
+def test_ssl_cert_transform_no_issuer():
+    """Cert sem issuer (improvável mas possível) → apenas Domain + SAN domains."""
+    from openm.transforms.ssl_cert import SslCertTransform
+
+    cert = {**MOCK_SSL_DATA, "issuer": {}}
+    domain = Domain(value="example.com", properties={})
+    transform = SslCertTransform()
+
+    with patch(
+        "openm.transforms.ssl_cert.inspect_ssl",
+        return_value=cert,
+    ):
+        result = transform.run(domain)
+
+    # Sem Device do issuer
+    assert not any(e.type == "Device" for e in result.entities)
+    assert len(result.relationships) == 4  # apenas SSL_SAN
+    assert all(r["type"] == "SSL_SAN" for r in result.relationships)
+
+
+def test_ssl_cert_transform_connection_failure():
+    """inspect_ssl retorna None (falha de conexão) → Domain com available=False."""
+    from openm.transforms.ssl_cert import SslCertTransform
+
+    domain = Domain(value="broken.example.com", properties={})
+    transform = SslCertTransform()
+
+    with patch(
+        "openm.transforms.ssl_cert.inspect_ssl",
+        return_value=None,
+    ):
+        result = transform.run(domain)
+
+    # Apenas Domain marcado como indisponível, sem Device nem SAN
+    assert len(result.entities) == 1
+    assert result.entities[0].value == "broken.example.com"
+    assert result.entities[0].properties["ssl_available"] is False
+    assert result.relationships == []
+
+
+def test_ssl_cert_transform_san_equals_parent_skipped():
+    """SAN que e igual ao domain pai e pulado (deduplicacao)."""
+    from openm.transforms.ssl_cert import SslCertTransform
+
+    cert = {
+        **MOCK_SSL_DATA,
+        "san_domains": ["example.com", "www.example.com"],
+    }
+    domain = Domain(value="example.com", properties={})
+    transform = SslCertTransform()
+
+    with patch(
+        "openm.transforms.ssl_cert.inspect_ssl",
+        return_value=cert,
+    ):
+        result = transform.run(domain)
+
+    # Apenas 1 SAN (www) — example.com pulado
+    san_domains = [e for e in result.entities
+                   if e.type == "Domain" and e.value != "example.com"]
+    assert len(san_domains) == 1
+    assert san_domains[0].value == "www.example.com"
+
+
+def test_ssl_cert_transform_preserves_entity_id():
+    """Domain enriquecido mantem o mesmo id da entidade original."""
+    from openm.transforms.ssl_cert import SslCertTransform
+
+    domain = Domain(value="example.com", properties={})
+    transform = SslCertTransform()
+
+    with patch(
+        "openm.transforms.ssl_cert.inspect_ssl",
+        return_value=MOCK_SSL_DATA,
+    ):
+        result = transform.run(domain)
+
+    parent = [e for e in result.entities if e.value == "example.com"][0]
+    assert parent.id == domain.id
+
+
+def test_ssl_cert_transform_preserves_existing_properties():
+    """Propriedades pre-existentes no Domain sao preservadas."""
+    from openm.transforms.ssl_cert import SslCertTransform
+
+    domain = Domain(
+        value="example.com",
+        properties={"whois_registrar": "X", "crtsh_subdomain_count": 3},
+    )
+    transform = SslCertTransform()
+
+    with patch(
+        "openm.transforms.ssl_cert.inspect_ssl",
+        return_value=MOCK_SSL_DATA,
+    ):
+        result = transform.run(domain)
+
+    parent = [e for e in result.entities if e.value == "example.com"][0]
+    assert parent.properties["whois_registrar"] == "X"
+    assert parent.properties["crtsh_subdomain_count"] == 3
+    assert parent.properties["ssl_issuer_org"] == "DigiCert Inc"
+
+
+def test_ssl_cert_transform_skips_non_domain():
+    """Template method: IP → vazio sem chamar inspect_ssl."""
+    from openm.transforms.ssl_cert import SslCertTransform
+
+    ip = IPAddress(value="8.8.8.8")
+    transform = SslCertTransform()
+
+    with patch("openm.transforms.ssl_cert.inspect_ssl") as mock:
+        result = transform.run(ip)
+
+    mock.assert_not_called()
+    assert result.entities == []
+    assert result.relationships == []
+
+
+def test_ssl_cert_transform_registered():
+    """SslCertTransform aparece no TransformRegistry para Domain."""
+    from openm.core.transform import TransformRegistry
+    from openm.transforms.ssl_cert import SslCertTransform
+
+    assert TransformRegistry.get("ssl_cert_inspect") is SslCertTransform
+
+    compatible = TransformRegistry.list_for_type("Domain")
+    names = [t["name"] for t in compatible]
+    assert "ssl_cert_inspect" in names
+
+    # Nao aparece para outros tipos
+    for other_type in ("IPAddress", "Email", "Person", "Device", "BankAccount", "URL", "FileHash"):
+        assert "ssl_cert_inspect" not in [
+            t["name"] for t in TransformRegistry.list_for_type(other_type)
+        ]
+
+
+# ====================================================================
+# SSL Service — unit tests
+# ====================================================================
+
+
+def test_ssl_service_extract_san_domains_basic():
+    """extract_san_domains normaliza e deduplica."""
+    from openm.services.ssl_service import extract_san_domains
+
+    cert = {
+        "san_domains": [
+            "example.com",
+            "WWW.EXAMPLE.COM",
+            "*.api.example.com",
+            "example.com",  # dup
+            "",
+        ],
+    }
+    result = extract_san_domains(cert)
+    # Empty ignorado, wildcard removido, duplicata removida, lowercase
+    assert result == ["api.example.com", "example.com", "www.example.com"]
+
+
+def test_ssl_service_extract_san_domains_empty():
+    """Sem SAN ou san_domains None → lista vazia."""
+    from openm.services.ssl_service import extract_san_domains
+
+    assert extract_san_domains({}) == []
+    assert extract_san_domains({"san_domains": None}) == []
+    assert extract_san_domains({"san_domains": []}) == []
+
+
+def test_ssl_service_format_name():
+    """_format_name converte tuples of tuples em dict."""
+    from openm.services.ssl_service import _format_name
+
+    name = (
+        ("commonName", "example.com"),
+        ("organizationName", "Example Corp"),
+        ("countryName", "US"),
+    )
+    assert _format_name(name) == {
+        "common": "example.com",
+        "organization": "Example Corp",
+        "country": "US",
+    }
+
+
+def test_ssl_service_format_name_empty():
+    """_format_name com vazio ou None retorna dict vazio."""
+    from openm.services.ssl_service import _format_name
+
+    assert _format_name(()) == {}
+    assert _format_name(None) == {}
+
+
+def test_ssl_service_inspect_ssl_success(monkeypatch):
+    """inspect_ssl com mock de socket retorna dict populado."""
+    import ssl
+    from openm.services.ssl_service import inspect_ssl
+
+    fake_der = b"fake-cert-bytes"
+    fake_pem = "-----BEGIN CERTIFICATE-----\nFAKE\n-----END CERTIFICATE-----"
+    fake_cert = {
+        "subject": (
+            ("commonName", "example.com"),
+            ("organizationName", "Example Corp"),
+        ),
+        "issuer": (
+            ("commonName", "Test CA"),
+            ("organizationName", "Test Org"),
+            ("countryName", "US"),
+        ),
+        "subjectAltName": (
+            ("DNS", "example.com"),
+            ("DNS", "www.example.com"),
+            ("DNS", "*.api.example.com"),
+        ),
+        "notBefore": "Jan 15 00:00:00 2025 GMT",
+        "notAfter": "Feb 15 23:59:59 2026 GMT",
+        "version": 3,
+        "serialNumber": "ABCDEF1234",
+    }
+
+    class FakeTLSSock:
+        def __init__(self, *a, **kw):
+            pass
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *a):
+            pass
+
+        def getpeercert(self, binary_form=False):
+            return fake_der if binary_form else fake_cert
+
+    class FakeCtx:
+        def wrap_socket(self, sock, server_hostname=None):
+            return FakeTLSSock()
+
+    class FakeRawSock:
+        def __init__(self, *a, **kw):
+            pass
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *a):
+            pass
+
+    monkeypatch.setattr(
+        "socket.create_connection",
+        lambda addr, timeout: FakeRawSock(),
+    )
+    monkeypatch.setattr(
+        "ssl.create_default_context",
+        lambda: FakeCtx(),
+    )
+    monkeypatch.setattr(
+        ssl, "DER_cert_to_PEM_cert", lambda der: fake_pem
+    )
+
+    result = inspect_ssl("example.com")
+
+    assert result is not None
+    assert result["issuer"]["common"] == "Test CA"
+    assert result["subject"]["common"] == "example.com"
+    # inspect_ssl preserva wildcards crus — a normalizacao fica para
+    # extract_san_domains (chamado pelo transform).
+    assert result["san_domains"] == [
+        "example.com", "www.example.com", "*.api.example.com",
+    ]
+    assert result["valid_from"] == "Jan 15 00:00:00 2025 GMT"
+    assert result["valid_until"] == "Feb 15 23:59:59 2026 GMT"
+    assert result["version"] == 3
+    assert result["serial_number"] == "ABCDEF1234"
+    assert result["raw_pem"] == fake_pem
+    assert result["source"] == "ssl"
+    assert len(result["fingerprint_sha256"]) == 64
+
+
+def test_ssl_service_inspect_ssl_connection_refused(monkeypatch):
+    """Conexao recusada → None."""
+    from openm.services.ssl_service import inspect_ssl
+
+    def fake_create_connection(addr, timeout):
+        raise ConnectionRefusedError("refused")
+
+    monkeypatch.setattr("socket.create_connection", fake_create_connection)
+
+    result = inspect_ssl("example.com")
+    assert result is None
+
+
+def test_ssl_service_inspect_ssl_timeout(monkeypatch):
+    """Timeout → None."""
+    import socket
+    from openm.services.ssl_service import inspect_ssl
+
+    def fake_create_connection(addr, timeout):
+        raise socket.timeout("timed out")
+
+    monkeypatch.setattr("socket.create_connection", fake_create_connection)
+
+    result = inspect_ssl("example.com")
+    assert result is None
+
+
+def test_ssl_service_inspect_ssl_ssl_error(monkeypatch):
+    """SSL error → None."""
+    import ssl
+    from openm.services.ssl_service import inspect_ssl
+
+    class FakeRawSock:
+        def __init__(self, *a, **kw):
+            pass
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *a):
+            pass
+
+    class FakeCtx:
+        def wrap_socket(self, sock, server_hostname=None):
+            raise ssl.SSLError("handshake failed")
+
+    monkeypatch.setattr(
+        "socket.create_connection",
+        lambda addr, timeout: FakeRawSock(),
+    )
+    monkeypatch.setattr(
+        "ssl.create_default_context",
+        lambda: FakeCtx(),
+    )
+
+    result = inspect_ssl("example.com")
+    assert result is None
+
+
+def test_ssl_service_inspect_ssl_resets_timeout(monkeypatch):
+    """Mesmo padrao do dns_service: timeout e resetado no finally."""
+    import socket
+    from openm.services.ssl_service import inspect_ssl
+
+    def fake_create_connection(addr, timeout):
+        raise socket.timeout("fail")
+
+    monkeypatch.setattr("socket.create_connection", fake_create_connection)
+
+    inspect_ssl("example.com", timeout=2.0)
+    assert socket.getdefaulttimeout() is None
