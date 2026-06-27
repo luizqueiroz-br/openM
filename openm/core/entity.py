@@ -117,8 +117,28 @@ class FileHash(Entity):
         self.properties.setdefault("algorithm", algo)
 
 
+class DnsRecord(Entity):
+    """Registro DNS de uma consulta (A, AAAA, MX, NS, TXT, CNAME, SOA, PTR).
+
+    ``value`` é o valor principal do registro (IP, hostname, texto,
+    CNAME target, etc). Metadados como ``record_type``, ``record_ttl``,
+    ``record_priority`` e dados estruturados específicos ficam em
+    ``properties``.
+    """
+    entity_type = "DnsRecord"
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        # value deve refletir o campo principal do registro para
+        # visualizacao e merge no grafo.
+        self.properties.setdefault("record_value", self.value)
+
+
 # Mapeamento de tipo-string para classe, usado pela API e pelos transforms.
 ENTITY_CLASSES = {
     cls.entity_type: cls
-    for cls in [IPAddress, Email, Domain, Person, BankAccount, Device, URL, FileHash]
+    for cls in [
+        IPAddress, Email, Domain, Person, BankAccount, Device, URL, FileHash,
+        DnsRecord,
+    ]
 }

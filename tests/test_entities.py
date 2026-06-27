@@ -1,6 +1,7 @@
 from openm.core.entity import (
     BankAccount,
     Device,
+    DnsRecord,
     Domain,
     Email,
     ENTITY_CLASSES,
@@ -40,6 +41,7 @@ def test_all_entity_subclasses_exist():
         "Device",
         "URL",
         "FileHash",
+        "DnsRecord",
     }
 
 
@@ -49,6 +51,38 @@ def test_subclass_types():
     assert BankAccount(value="123").type == "BankAccount"
     assert Person(value="John").type == "Person"
     assert Device(value="phone-1").type == "Device"
+    assert DnsRecord(value="93.184.216.34", properties={"record_type": "A"}).type == "DnsRecord"
+
+
+# ========================================================================
+# DNS Record Entity
+# ========================================================================
+
+
+def test_dns_record_entity():
+    """DnsRecord: type/value/serialization/cytoscape/registration."""
+    record = DnsRecord(
+        value="93.184.216.34",
+        properties={"record_type": "A", "record_ttl": 300},
+    )
+    assert record.type == "DnsRecord"
+    assert record.value == "93.184.216.34"
+    assert record.properties["record_type"] == "A"
+    assert record.properties["record_value"] == "93.184.216.34"
+
+    data = record.to_dict()
+    assert data["type"] == "DnsRecord"
+    assert data["value"] == "93.184.216.34"
+
+    cyto = record.to_cytoscape()
+    assert cyto["data"]["id"] == record.id
+    assert cyto["data"]["type"] == "DnsRecord"
+    assert cyto["data"]["record_type"] == "A"
+
+    assert ENTITY_CLASSES["DnsRecord"] is DnsRecord
+    instance = ENTITY_CLASSES["DnsRecord"](value="example.com", properties={"record_type": "CNAME"})
+    assert isinstance(instance, DnsRecord)
+    assert instance.properties["record_value"] == "example.com"
 
 
 def test_url_entity():

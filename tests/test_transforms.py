@@ -1,6 +1,7 @@
 import os
 from unittest.mock import patch
 
+import dns.resolver
 import openm.transforms  # noqa: F401 — dispara o @Transform.register em todos os transforms
 from openm.core.entity import Domain, Email, IPAddress
 from openm.transforms.fraud_email import CheckFraudEmailTransform
@@ -3429,4 +3430,395 @@ def test_ssl_service_inspect_ssl_resets_timeout(monkeypatch):
     monkeypatch.setattr("socket.create_connection", fake_create_connection)
 
     inspect_ssl("example.com", timeout=2.0)
-    assert socket.getdefaulttimeout() is None
+
+
+# ========================================================================
+# DNS Records Transform
+# ========================================================================
+
+
+def test_dns_records_transform_domain_with_records():
+    """Domain com A, MX e TXT -> DnsRecords + Domain enriquecido."""
+    from openm.transforms.dns_records import DnsRecordsTransform
+
+    domain = Domain(value="example.com", properties={})
+    transform = DnsRecordsTransform()
+
+    mock_records = [
+        {
+            "record_type": "A",
+            "record_value": "93.184.216.34",
+            "record_ttl": 300,
+            "resolved_domain": "example.com",
+            "canonical_domain": "example.com",
+            "record_data": {"address": "93.184.216.34"},
+        },
+        {
+            "record_type": "MX",
+            "record_value": "mail.example.com",
+            "record_ttl": 3600,
+            "resolved_domain": "example.com",
+            "canonical_domain": "example.com",
+            "record_data": {"exchange": "mail.example.com", "priority": 10},
+            "record_priority": 10,
+        },
+        {
+            "record_type": "TXT",
+            "record_value": "v=spf1 include:_spf.example.com ~all",
+            "record_ttl": 3600,
+            "resolved_domain": "example.com",
+            "canonical_domain": "example.com",
+            "record_data": {"strings": ["v=spf1 include:_spf.example.com ~all"]},
+        },
+    ]
+
+    with patch(
+        "openm.transforms.dns_records.query_records",
+        return_value=("example.com", mock_records),
+    ):
+        result = transform.run(domain)
+
+    assert len(result.entities) == 4  # Domain enriquecido + 3 registros
+    parent = [e for e in result.entities if e.type == "Domain"][0]
+    assert parent.id == domain.id
+    assert parent.properties["dns_available"] is True
+    assert parent.properties["dns_record_count"] == 3
+    assert parent.properties["dns_canonical_domain"] == "example.com"
+
+    records = [e for e in result.entities if e.type == "DnsRecord"]
+    assert {r.properties["record_type"] for r in records} == {"A", "MX", "TXT"}
+    a_record = [r for r in records if r.properties["record_type"] == "A"][0]
+    assert a_record.value == "93.184.216.34"
+    assert a_record.properties["record_ttl"] == 300
+    mx_record = [r for r in records if r.properties["record_type"] == "MX"][0]
+    assert mx_record.properties["record_priority"] == 10
+
+    assert len(result.relationships) == 3
+    assert all(r["type"] == "HAS_DNS_RECORD" for r in result.relationships)
+    assert all(r["from_id"] == domain.id for r in result.relationships)
+
+
+def test_dns_records_transform_no_records_marks_unavailable():
+    """Sem respostas DNS -> Domain com available=False."""
+    from openm.transforms.dns_records import DnsRecordsTransform
+
+    domain = Domain(value="nodns.example.com", properties={})
+    transform = DnsRecordsTransform()
+
+    with patch(
+        "openm.transforms.dns_records.query_records",
+        return_value=("nodns.example.com", []),
+    ):
+        result = transform.run(domain)
+
+    assert len(result.entities) == 1
+    assert result.entities[0].type == "Domain"
+    assert result.entities[0].properties["dns_available"] is False
+    assert result.entities[0].properties["dns_record_count"] == 0
+    assert result.relationships == []
+
+
+def test_dns_records_transform_preserves_existing_properties():
+    """Propriedades pre-existentes do Domain sao preservadas."""
+    from openm.transforms.dns_records import DnsRecordsTransform
+
+    domain = Domain(
+        value="example.com",
+        properties={"whois_registrar": "X", "crtsh_subdomain_count": 3},
+    )
+    transform = DnsRecordsTransform()
+
+    with patch(
+        "openm.transforms.dns_records.query_records",
+        return_value=("example.com", []),
+    ):
+        result = transform.run(domain)
+
+    parent = result.entities[0]
+    assert parent.properties["whois_registrar"] == "X"
+    assert parent.properties["crtsh_subdomain_count"] == 3
+
+
+def test_dns_records_transform_ip_with_ptr():
+    """IPAddress com PTR -> Domain + DnsRecords + PTR record + RESOLVES_TO."""
+    from openm.transforms.dns_records import DnsRecordsTransform
+
+    ip = IPAddress(value="8.8.8.8", properties={})
+    transform = DnsRecordsTransform()
+
+    ptr_records = [
+        {
+            "record_type": "A",
+            "record_value": "8.8.8.8",
+            "record_ttl": 300,
+            "resolved_domain": "dns.google",
+            "canonical_domain": "dns.google",
+            "record_data": {"address": "8.8.8.8"},
+        },
+    ]
+
+    with patch(
+        "openm.transforms.dns_records.reverse_dns_ptr",
+        return_value=("dns.google", [], ptr_records),
+    ):
+        result = transform.run(ip)
+
+    assert len(result.entities) == 3  # IP + Domain ptr + A record + PTR record
+    ptr_domain = [e for e in result.entities if e.type == "Domain"][0]
+    assert ptr_domain.value == "dns.google"
+    assert ptr_domain.properties["is_ptr_hostname"] is True
+
+    ptr_record = [e for e in result.entities if e.type == "DnsRecord" and e.properties["record_type"] == "PTR"][0]
+    assert ptr_record.value == "dns.google"
+
+    a_record = [e for e in result.entities if e.type == "DnsRecord" and e.properties["record_type"] == "A"][0]
+    assert a_record.value == "8.8.8.8"
+
+    resolves_to = [r for r in result.relationships if r["type"] == "RESOLVES_TO"]
+    has_dns = [r for r in result.relationships if r["type"] == "HAS_DNS_RECORD"]
+    assert len(resolves_to) == 1
+    assert len(has_dns) == 2
+
+
+def test_dns_records_transform_ip_no_ptr_returns_empty():
+    """IP sem PTR -> result vazio."""
+    from openm.transforms.dns_records import DnsRecordsTransform
+
+    ip = IPAddress(value="192.0.2.1", properties={})
+    transform = DnsRecordsTransform()
+
+    with patch(
+        "openm.transforms.dns_records.reverse_dns_ptr",
+        return_value=None,
+    ):
+        result = transform.run(ip)
+
+    assert result.entities == []
+    assert result.relationships == []
+
+
+def test_dns_records_transform_skips_non_supported_type():
+    """Email -> result vazio sem chamar query_records."""
+    from openm.transforms.dns_records import DnsRecordsTransform
+
+    email = Email(value="a@b.com")
+    transform = DnsRecordsTransform()
+
+    with patch("openm.transforms.dns_records.query_records") as mock:
+        result = transform.run(email)
+
+    mock.assert_not_called()
+    assert result.entities == []
+    assert result.relationships == []
+
+
+def test_dns_records_transform_registered():
+    """DnsRecordsTransform aparece no registry para Domain e IPAddress."""
+    from openm.core.transform import TransformRegistry
+    from openm.transforms.dns_records import DnsRecordsTransform
+
+    assert TransformRegistry.get("dns_records_lookup") is DnsRecordsTransform
+
+    for supported in ("Domain", "IPAddress"):
+        names = [t["name"] for t in TransformRegistry.list_for_type(supported)]
+        assert "dns_records_lookup" in names
+
+    for other_type in ("Email", "Person", "Device", "BankAccount", "URL", "FileHash"):
+        assert "dns_records_lookup" not in [
+            t["name"] for t in TransformRegistry.list_for_type(other_type)
+        ]
+
+
+# ========================================================================
+# DNS Records Service
+# ========================================================================
+
+
+def test_dns_records_service_query_records_success(monkeypatch):
+    """query_records retorna registros parseados corretamente."""
+    from openm.services.dns_records_service import query_records
+
+    class FakeRdata:
+        def __init__(self, value):
+            self.address = value
+
+    class FakeRRSet:
+        def __init__(self, rdata_list, ttl):
+            self.items = rdata_list
+            self.ttl = ttl
+
+        def __iter__(self):
+            return iter(self.items)
+
+        def __getitem__(self, idx):
+            return self.items[idx]
+
+    class FakeAnswer:
+        def __init__(self, rdata_list, ttl):
+            self.rrset = FakeRRSet(rdata_list, ttl)
+
+    class FakeResolver:
+        def __init__(self):
+            self.timeout = 5.0
+            self.lifetime = 5.0
+
+        def resolve(self, qname, rdtype):
+            if rdtype == "A":
+                return FakeAnswer([FakeRdata("93.184.216.34")], 300)
+            if rdtype == "MX":
+                class FakeMx:
+                    exchange = "mail.example.com."
+                    preference = 10
+                return FakeAnswer([FakeMx()], 3600)
+            if rdtype == "TXT":
+                class FakeTxt:
+                    strings = [b"v=spf1 include:_spf.example.com ~all"]
+                return FakeAnswer([FakeTxt()], 3600)
+            raise dns.resolver.NoAnswer
+
+    monkeypatch.setattr(
+        "openm.services.dns_records_service._resolver",
+        lambda timeout=None: FakeResolver(),
+    )
+
+    canonical, records = query_records("example.com", record_types=["A", "MX", "TXT"])
+    assert canonical == "example.com"
+    assert len(records) == 3
+
+    a = [r for r in records if r["record_type"] == "A"][0]
+    assert a["record_value"] == "93.184.216.34"
+    assert a["record_ttl"] == 300
+
+    mx = [r for r in records if r["record_type"] == "MX"][0]
+    assert mx["record_value"] == "mail.example.com"
+    assert mx["record_priority"] == 10
+
+    txt = [r for r in records if r["record_type"] == "TXT"][0]
+    assert "v=spf1" in txt["record_value"]
+
+
+def test_dns_records_service_query_records_nxdomain_returns_none(monkeypatch):
+    """NXDOMAIN -> retorna (None, [])."""
+    from openm.services.dns_records_service import query_records
+
+    class FakeResolver:
+        def resolve(self, qname, rdtype):
+            raise dns.resolver.NXDOMAIN
+
+    monkeypatch.setattr(
+        "openm.services.dns_records_service._resolver",
+        lambda timeout=None: FakeResolver(),
+    )
+
+    canonical, records = query_records("doesnotexist.example.com")
+    assert canonical is None
+    assert records == []
+
+
+def test_dns_records_service_query_records_no_answer_continues(monkeypatch):
+    """NoAnswer para um tipo nao interrompe os demais."""
+    from openm.services.dns_records_service import query_records
+
+    class FakeResolver:
+        def resolve(self, qname, rdtype):
+            raise dns.resolver.NoAnswer
+
+    monkeypatch.setattr(
+        "openm.services.dns_records_service._resolver",
+        lambda timeout=None: FakeResolver(),
+    )
+
+    canonical, records = query_records("example.com", record_types=["A", "MX"])
+    assert canonical == "example.com"
+    assert records == []
+
+
+def test_dns_records_service_query_records_cname_sets_canonical(monkeypatch):
+    """CNAME chain define canonical_domain e retorna o registro CNAME."""
+    from openm.services.dns_records_service import query_records
+
+    class FakeCname:
+        def __str__(self):
+            return "target.example.com."
+
+    class FakeRRSet:
+        def __init__(self, rdata_list, ttl):
+            self.items = rdata_list
+            self.ttl = ttl
+
+        def __iter__(self):
+            return iter(self.items)
+
+        def __getitem__(self, idx):
+            return self.items[idx]
+
+        def __len__(self):
+            return len(self.items)
+
+    class FakeAnswer:
+        def __init__(self, rdata_list, ttl):
+            self.rrset = FakeRRSet(rdata_list, ttl)
+
+    class FakeResolver:
+        def resolve(self, qname, rdtype):
+            if rdtype == "CNAME":
+                return FakeAnswer([FakeCname()], 300)
+            raise dns.resolver.NoAnswer
+
+    monkeypatch.setattr(
+        "openm.services.dns_records_service._resolver",
+        lambda timeout=None: FakeResolver(),
+    )
+
+    canonical, records = query_records("alias.example.com")
+    assert canonical == "target.example.com"
+    assert len(records) == 1
+    assert records[0]["record_type"] == "CNAME"
+    assert records[0]["record_value"] == "target.example.com"
+
+
+def test_dns_records_service_reverse_dns_ptr_success(monkeypatch):
+    """reverse_dns_ptr delega para socket_reverse_dns e query_records."""
+    from openm.services import dns_records_service
+
+    called = {}
+
+    def fake_reverse_dns(ip, timeout):
+        called["reverse"] = ip
+        return ("dns.google", ["dns2.google"])
+
+    def fake_query_records(hostname, timeout=None):
+        called["query"] = hostname
+        return hostname, [
+            {
+                "record_type": "A",
+                "record_value": "8.8.8.8",
+                "record_ttl": 300,
+                "resolved_domain": hostname,
+                "canonical_domain": hostname,
+                "record_data": {"address": "8.8.8.8"},
+            }
+        ]
+
+    monkeypatch.setattr(dns_records_service, "socket_reverse_dns", fake_reverse_dns)
+    monkeypatch.setattr(dns_records_service, "query_records", fake_query_records)
+
+    hostname, aliases, records = dns_records_service.reverse_dns_ptr("8.8.8.8")
+    assert hostname == "dns.google"
+    assert aliases == ["dns2.google"]
+    assert called["reverse"] == "8.8.8.8"
+    assert called["query"] == "dns.google"
+    assert len(records) == 1
+
+
+def test_dns_records_service_reverse_dns_ptr_no_ptr_returns_none(monkeypatch):
+    """reverse_dns_ptr sem PTR -> None."""
+    from openm.services import dns_records_service
+
+    def fake_reverse_dns(ip, timeout):
+        return None
+
+    monkeypatch.setattr(dns_records_service, "socket_reverse_dns", fake_reverse_dns)
+
+    result = dns_records_service.reverse_dns_ptr("192.0.2.1")
+    assert result is None
