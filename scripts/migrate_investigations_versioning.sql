@@ -1,3 +1,6 @@
+-- DEPRECATED: superseded by Alembic migration in migrations/versions/.
+-- Kept for one release per issue #36. Safe to delete after next deploy.
+--
 -- Migration: Investigation versioning (issue #37)
 -- Adiciona coluna version para optimistic locking.
 -- Idempotente: pode rodar múltiplas vezes sem erro.

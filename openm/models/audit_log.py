@@ -24,6 +24,8 @@ from __future__ import annotations
 
 from datetime import datetime, timezone
 
+from sqlalchemy.dialects.postgresql import JSONB
+
 from openm.extensions import db
 
 
@@ -73,8 +75,10 @@ class AuditLog(db.Model):
     target_id = db.Column(db.String(64), nullable=True)
 
     # Metadados adicionais da ação (request_id, ip extraído de X-Forwarded-For,
-    # diffs, motivo de falha etc.). JSONB no Postgres.
-    meta = db.Column("metadata", db.JSON, nullable=True)
+    # diffs, motivo de falha etc.). JSONB no Postgres (TEXT em SQLite nos testes).
+    meta = db.Column(
+        "metadata", db.JSON().with_variant(JSONB(), "postgresql"), nullable=True
+    )
 
     # IP de origem (X-Forwarded-For se presente, senão remote_addr).
     # VARCHAR(45) acomoda IPv6 comprimido (max "::ffff:255.255.255.255" = 45 chars).

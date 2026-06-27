@@ -96,9 +96,9 @@ pip install -r requirements.txt
 cp .env.example .env
 # edit NEO4J_URI, DATABASE_URL as needed
 
-# Create tables
-python -c "from openm.app import create_app; from openm.extensions import db; \
-  app = create_app(); ctx = app.app_context(); ctx.push(); db.create_all()"
+# Apply migrations (creates the tables on first run)
+make db-upgrade
+# or: flask --app openm.app db upgrade
 
 flask run
 ```
@@ -113,6 +113,63 @@ pytest
 ```
 
 Coverage: 13 tests (entities, transforms, API).
+
+---
+
+## 🗄 Database migrations (Flask-Migrate / Alembic, issue #36)
+
+As of issue #36, the PostgreSQL schema is managed by
+[Flask-Migrate](https://flask-migrate.readthedocs.io/) (an Alembic
+wrapper). The entrypoint (`entrypoint.sh`) runs migrations
+automatically before bringing the app up.
+
+**Development workflow:**
+
+```bash
+# 1. Start Postgres
+make db-up
+
+# 2. Apply migrations
+make db-upgrade
+
+# 3. After changing models, generate a new migration
+make db-migrate NAME="add foo column to bar"
+# edit migrations/versions/<rev>_add_foo_column_to_bar.py
+# (review/hand-edit — autogenerate doesn't always get it right)
+
+# 4. Apply
+make db-upgrade
+```
+
+**Available targets** (all wrappers around `flask --app openm.app db ...`):
+
+| Target | Action |
+|---|---|
+| `make db-migrate NAME="..."` | Autogenerate a new migration |
+| `make db-upgrade` | Apply pending migrations (idempotent) |
+| `make db-downgrade REV=-1` | Revert ONE migration |
+| `make db-stamp REV=head` | Stamp state without executing (legacy DB cutover) |
+| `make db-history` | List history |
+| `make db-current` | Show current revision |
+
+**Legacy DB cutover (first deploy with existing data):**
+
+In production with pre-existing data, run **once** after the first
+deploy:
+
+```bash
+flask db stamp head
+```
+
+This marks the migrations as applied without executing them
+(equivalent to the old `db.create_all()`). On subsequent boots the
+`flask db upgrade` in the entrypoint detects the stamp and does
+nothing.
+
+**Unit tests** continue to use `db.create_all()` / `db.drop_all()` on
+SQLite (speed + isolation). Only E2E and production use Alembic. The
+legacy `scripts/migrate_*.sql` scripts are marked **DEPRECATED** and
+will be removed in the next release.
 
 ---
 

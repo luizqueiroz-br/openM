@@ -129,10 +129,19 @@ def _try_via_openm(email: str, password: str, force: bool) -> tuple[bool, str]:
     # Cria app efêmero só pra ter o contexto do DB.
     app = create_app(Config)
     with app.app_context():
-        # Garante que o schema existe (idempotente — não destrutivo).
-        # Em produção as tabelas já existem; isso só ajuda em SQLite
-        # local / ambiente de bootstrap zerado.
-        db.create_all()
+        # Não criamos tabelas defensivamente: o schema é gerenciado por
+        # Flask-Migrate / Alembic (issue #36). Em produção o operador
+        # deve rodar ``flask db upgrade`` antes deste script; em dev
+        # local o Makefile já provê ``make db-upgrade``. Se a tabela
+        # ``users`` não existir, falhamos com mensagem clara.
+        from sqlalchemy import inspect
+
+        inspector = inspect(db.engine)
+        if not inspector.has_table("users"):
+            return False, (
+                "tabela 'users' ausente — execute 'flask db upgrade' "
+                "antes deste script"
+            )
 
         existing = User.query.filter_by(email=email).first()
 

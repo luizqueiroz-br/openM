@@ -2,6 +2,7 @@ Flask==3.0.3
 Flask-SQLAlchemy==3.1.1
 Flask-CORS==4.0.1
 Flask-Limiter==3.7.0
+Flask-Migrate==4.1.0
 psycopg2-binary==2.9.9
 neo4j==5.22.0
 python-dotenv==1.0.1

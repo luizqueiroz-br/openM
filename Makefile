@@ -32,7 +32,8 @@ endif
 
 .PHONY: help venv install db-up db-down db-logs db-status db-reset \
         api api-shell test test-e2e test-auth test-api test-issue14 lint debug clean reset \
-        create-admin create-admin-cli create-admin-script
+        create-admin create-admin-cli create-admin-script \
+        db-migrate db-upgrade db-downgrade db-stamp db-history db-current
 
 help: ## Mostra esta ajuda
 	@awk 'BEGIN {FS = ":.*?## "} /^[a-zA-Z_-]+:.*?## .*$$/ {printf "  \033[36m%-15s\033[0m %s\n", $$1, $$2}' $(MAKEFILE_LIST)
@@ -66,6 +67,39 @@ db-status: ## Status dos containers
 db-reset: db-down ## Para containers e APAGA volumes (DB zerado)
 	docker compose down -v
 	@echo "✓ Volumes removidos"
+
+# ============ Flask-Migrate / Alembic (issue #36) ============
+#
+# Workflow:
+#   1. make db-migrate NAME="add foo column"   # gera migration nova (autogenerate)
+#   2. edite migrations/versions/<rev>_*.py    # revisar/hand-edit
+#   3. make db-upgrade                        # aplica ao DB
+#
+# Primeiro deploy em prod com DB existente (cutover): rode
+# ``flask db stamp head`` uma vez para marcar as migrations como
+# aplicadas sem executá-las (issue #36).
+
+db-migrate: ## Gera nova migration (autogenerate). Uso: make db-migrate NAME="descrição"
+	@if [ -z "$(NAME)" ]; then \
+		echo "✗ NAME não definido. Uso: make db-migrate NAME=\"descrição\""; \
+		exit 2; \
+	fi
+	. $(VENV)/bin/activate && flask --app openm.app db migrate -m "$(NAME)"
+
+db-upgrade: ## Aplica migrations pendentes (idempotente)
+	. $(VENV)/bin/activate && flask --app openm.app db upgrade
+
+db-downgrade: ## Reverte UMA migration. Uso: make db-downgrade REV=-1
+	. $(VENV)/bin/activate && flask --app openm.app db downgrade $(REV)
+
+db-stamp: ## Marca o estado atual sem rodar (cutover de DB legado). Uso: make db-stamp REV=head
+	. $(VENV)/bin/activate && flask --app openm.app db stamp $(REV)
+
+db-history: ## Lista o histórico de migrations
+	. $(VENV)/bin/activate && flask --app openm.app db history
+
+db-current: ## Mostra a revision atual do banco
+	. $(VENV)/bin/activate && flask --app openm.app db current
 
 # ============ Flask local ============
 

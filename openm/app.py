@@ -2,6 +2,7 @@
 
 from flask import Flask, jsonify
 from flask_cors import CORS
+from flask_migrate import Migrate
 
 from openm.config import Config
 from openm.extensions import db, limiter
@@ -41,6 +42,7 @@ def create_app(config_class=Config) -> Flask:
 
     # Inicializa extensões
     db.init_app(app)
+    Migrate(app, db)
     limiter.init_app(app)
 
     # CORS liberado para uso local

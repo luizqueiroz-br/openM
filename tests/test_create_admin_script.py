@@ -90,6 +90,13 @@ def test_via_openm_creates_admin(shared_sqlite_env):
     from openm.extensions import db
     from openm.models.user import User
 
+    # Setup: bootstrap do schema (Flask-Migrate não roda aqui — script
+    # exige 'flask db upgrade' antes; testes unitários criam manualmente).
+    app = create_app(Config)
+    with app.app_context():
+        db.create_all()
+        db.session.remove()
+
     ok, msg = _try_via_openm("viaopenm@example.com", "senha-forte-123", force=False)
     assert ok is True
     assert "criado" in msg.lower()
@@ -106,6 +113,15 @@ def test_via_openm_creates_admin(shared_sqlite_env):
 
 def test_via_openm_duplicate_email_aborts(shared_sqlite_env):
     from scripts.create_admin import _try_via_openm
+    from openm.config import Config
+    from openm.app import create_app
+    from openm.extensions import db
+
+    # Bootstrap do schema antes do script rodar.
+    app = create_app(Config)
+    with app.app_context():
+        db.create_all()
+        db.session.remove()
 
     _try_via_openm("dup@example.com", "senha-forte-123", force=False)
     ok, msg = _try_via_openm("dup@example.com", "outra-senha-456", force=False)
@@ -152,6 +168,15 @@ def test_via_openm_force_promotes(shared_sqlite_env):
 
 def test_via_openm_force_on_admin_is_noop(shared_sqlite_env):
     from scripts.create_admin import _try_via_openm
+    from openm.config import Config
+    from openm.app import create_app
+    from openm.extensions import db
+
+    # Bootstrap do schema antes do script rodar.
+    app = create_app(Config)
+    with app.app_context():
+        db.create_all()
+        db.session.remove()
 
     _try_via_openm("already@example.com", "senha-forte-123", force=False)
     ok, msg = _try_via_openm("already@example.com", "outra-senha-456", force=True)
@@ -181,6 +206,25 @@ def test_via_openm_missing_package_returns_helpful_error():
             )
             assert ok is False
             assert "pacote openm não disponível" in msg
+
+
+def test_via_openm_missing_users_table(shared_sqlite_env):
+    """Quando a tabela ``users`` não existe (schema não foi migrado),
+    ``_try_via_openm`` deve retornar ``(False, ...)`` em vez de abortar
+    o processo via ``sys.exit`` — quem decide o exit code é o ``main()``.
+
+    Usa o DB vazio (sem ``db.create_all()``) para forçar a falha do
+    inspect().has_table("users").
+    """
+    from scripts import create_admin
+
+    ok, msg = create_admin._try_via_openm(
+        "ghost@example.com", "senha-forte-123", force=False
+    )
+
+    assert ok is False
+    assert "users" in msg.lower()
+    assert "flask db upgrade" in msg.lower()
 
 
 # ===================== Estratégia B: Postgres direto =====================
@@ -467,6 +511,21 @@ def test_script_end_to_end_with_sqlite(tmp_path):
     db_file = tmp_path / "script_e2e.db"
     db_url = f"sqlite:///{db_file}"
 
+    # Bootstrap do schema no MESMO arquivo antes do subprocess rodar.
+    # O script exige 'flask db upgrade' prévio (#36); testes unitários
+    # criam a tabela via SQLAlchemy para reproduzir o efeito do upgrade.
+    from openm.config import Config
+    from openm.app import create_app
+    from openm.extensions import db
+
+    class _TmpConfig(Config):
+        SQLALCHEMY_DATABASE_URI = db_url
+
+    bootstrap_app = create_app(_TmpConfig)
+    with bootstrap_app.app_context():
+        db.create_all()
+        db.session.remove()
+
     # Subprocess precisa do path do projeto no PYTHONPATH pra encontrar openm.
     env = os.environ.copy()
     env["PYTHONPATH"] = str(PROJECT_ROOT) + os.pathsep + env.get("PYTHONPATH", "")
@@ -504,8 +563,17 @@ def test_script_end_to_end_with_sqlite(tmp_path):
 def test_main_with_no_color_does_not_set_ansi(shared_sqlite_env, monkeypatch, capsys):
     """--no-color desativa códigos ANSI no output."""
     from scripts import create_admin
+    from openm.config import Config
+    from openm.app import create_app
+    from openm.extensions import db
 
     db_file = shared_sqlite_env
+
+    # Bootstrap do schema antes do main() rodar.
+    app = create_app(Config)
+    with app.app_context():
+        db.create_all()
+        db.session.remove()
 
     monkeypatch.setattr(sys, "argv", [
         "create_admin.py",
@@ -555,8 +623,18 @@ def test_main_returns_2_for_missing_email(monkeypatch, capsys):
 def test_main_database_url_override_sets_env(shared_sqlite_env, monkeypatch):
     """--database-url sobrescreve DATABASE_URL no ambiente."""
     from scripts import create_admin
+    from openm.config import Config
+    from openm.app import create_app
+    from openm.extensions import db
 
     db_file = shared_sqlite_env
+
+    # Bootstrap do schema antes do main() rodar.
+    app = create_app(Config)
+    with app.app_context():
+        db.create_all()
+        db.session.remove()
+
     monkeypatch.setattr(sys, "argv", [
         "create_admin.py",
         "--email", "override@example.com",

@@ -1,4 +1,7 @@
 from datetime import datetime, timezone
+
+from sqlalchemy.dialects.postgresql import JSONB
+
 from openm.extensions import db
 
 
@@ -57,7 +60,9 @@ class Investigation(db.Model):
         server_default="1",
     )
     archived_at = db.Column(db.DateTime, nullable=True)
-    graph_snapshot = db.Column(db.JSON, nullable=True)
+    graph_snapshot = db.Column(
+        db.JSON().with_variant(JSONB(), "postgresql"), nullable=True
+    )
     # Estrutura esperada: { nodes: [...], edges: [...] } — Cytoscape normalizado
     # Nullable pra investigations legadas (criadas antes desta v2).
     last_auto_save_at = db.Column(db.DateTime, nullable=True)
