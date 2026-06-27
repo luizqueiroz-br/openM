@@ -40,10 +40,7 @@ class HunterDomainTransform(Transform):
     # dropdown — por isso usamos um label unificado aqui.
     service_display = "Hunter.io"
 
-    def run(self, entity: Entity) -> TransformResult:
-        if entity.type != "Domain":
-            return TransformResult()
-
+    def _run(self, entity: Entity) -> TransformResult:
         data = HunterService.investigate_domain(entity.value)
         checked_at = datetime.now(timezone.utc).isoformat()
 

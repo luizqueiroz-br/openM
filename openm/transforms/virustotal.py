@@ -35,10 +35,7 @@ class VirusTotalTransform(Transform):
     service_name = "virustotal"
     service_display = "VirusTotal"
 
-    def run(self, entity: Entity) -> TransformResult:
-        if entity.type not in self.input_types:
-            return TransformResult()
-
+    def _run(self, entity: Entity) -> TransformResult:
         intel = VirusTotalService.investigate_entity(
             entity.type, entity.value
         )

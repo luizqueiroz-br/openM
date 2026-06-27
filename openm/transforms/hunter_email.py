@@ -32,10 +32,7 @@ class HunterEmailTransform(Transform):
     # explicito para consistencia caso o registry evolua.
     service_display = "Hunter.io"
 
-    def run(self, entity: Entity) -> TransformResult:
-        if entity.type != "Email":
-            return TransformResult()
-
+    def _run(self, entity: Entity) -> TransformResult:
         data = HunterService.investigate_email(entity.value)
         checked_at = datetime.now(timezone.utc).isoformat()
 

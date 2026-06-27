@@ -27,10 +27,7 @@ class ShodanTransform(Transform):
     service_name = "shodan"
     service_display = "Shodan"
 
-    def run(self, entity: Entity) -> TransformResult:
-        if entity.type not in self.input_types:
-            return TransformResult()
-
+    def _run(self, entity: Entity) -> TransformResult:
         service = ShodanService()
         checked_at = datetime.now(timezone.utc).isoformat()
 
