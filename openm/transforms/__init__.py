@@ -9,6 +9,7 @@ from .virustotal import VirusTotalTransform
 from .reverse_dns import ReverseDnsTransform
 from .crtsh import CrtShTransform
 from .email_to_domain import EmailToDomainTransform
+from .ssl_cert import SslCertTransform
 
 __all__ = [
     "ResolveIPTransform",
@@ -22,4 +23,5 @@ __all__ = [
     "ReverseDnsTransform",
     "CrtShTransform",
     "EmailToDomainTransform",
+    "SslCertTransform",
 ]
