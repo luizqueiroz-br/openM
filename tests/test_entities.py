@@ -1,5 +1,6 @@
 from openm.core.entity import (
     BankAccount,
+    Breach,
     Device,
     DnsRecord,
     Domain,
@@ -42,6 +43,7 @@ def test_all_entity_subclasses_exist():
         "URL",
         "FileHash",
         "DnsRecord",
+        "Breach",
     }
 
 
@@ -52,6 +54,41 @@ def test_subclass_types():
     assert Person(value="John").type == "Person"
     assert Device(value="phone-1").type == "Device"
     assert DnsRecord(value="93.184.216.34", properties={"record_type": "A"}).type == "DnsRecord"
+    assert Breach(value="Adobe").type == "Breach"
+
+
+# ========================================================================
+# Breach Entity
+# ========================================================================
+
+
+def test_breach_entity():
+    """Breach: type/value/serialization/cytoscape/registration."""
+    breach = Breach(
+        value="Adobe",
+        properties={
+            "title": "Adobe",
+            "domain": "adobe.com",
+            "pwn_count": 152000000,
+            "data_classes": ["Email addresses", "Password hints", "Passwords", "Usernames"],
+        },
+    )
+    assert breach.type == "Breach"
+    assert breach.value == "Adobe"
+    assert breach.properties["title"] == "Adobe"
+
+    data = breach.to_dict()
+    assert data["type"] == "Breach"
+    assert data["value"] == "Adobe"
+
+    cyto = breach.to_cytoscape()
+    assert cyto["data"]["id"] == breach.id
+    assert cyto["data"]["type"] == "Breach"
+    assert cyto["data"]["domain"] == "adobe.com"
+
+    assert ENTITY_CLASSES["Breach"] is Breach
+    instance = ENTITY_CLASSES["Breach"](value="LinkedIn")
+    assert isinstance(instance, Breach)
 
 
 # ========================================================================

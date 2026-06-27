@@ -4138,3 +4138,387 @@ def test_abuseipdb_service_query_ip_invalid_json_returns_none(monkeypatch):
 
     result = AbuseIPDBService.query_ip("192.0.2.203")
     assert result is None
+
+
+# ========================================================================
+# HIBP Transform
+# ========================================================================
+
+
+def test_hibp_transform_email_with_breaches():
+    """Email com breaches -> Email enriquecido + Breach + EXPOSED_IN."""
+    from openm.transforms.hibp import HibpTransform
+    from openm.core.entity import Breach
+
+    email = Email(value="test@example.com", properties={})
+    transform = HibpTransform()
+
+    intel = {
+        "value": "test@example.com",
+        "type": "Email",
+        "source": "hibp",
+        "available": True,
+        "breaches": [
+            {
+                "name": "Adobe",
+                "title": "Adobe",
+                "domain": "adobe.com",
+                "breach_date": "2013-10-04",
+                "added_date": "2013-12-04T00:00:00Z",
+                "modified_date": "2022-05-25T21:35:40Z",
+                "pwn_count": 152445165,
+                "description": "Test description",
+                "data_classes": ["Email addresses", "Passwords"],
+                "is_verified": True,
+                "is_fabricated": False,
+                "is_sensitive": False,
+                "is_retired": False,
+                "is_spam_list": False,
+                "logo_path": "Adobe.png",
+            }
+        ],
+        "breach_count": 1,
+        "checked_at": "2026-06-27T18:00:00+00:00",
+    }
+
+    with patch(
+        "openm.transforms.hibp.HibpService.investigate_email",
+        return_value=intel,
+    ):
+        result = transform.run(email)
+
+    assert len(result.entities) == 2
+    enriched = [e for e in result.entities if isinstance(e, Email)][0]
+    assert enriched.id == email.id
+    assert enriched.properties["hibp_breach_count"] == 1
+    assert enriched.properties["hibp_available"] is True
+
+    breach = [e for e in result.entities if isinstance(e, Breach)][0]
+    assert breach.value == "Adobe"
+    assert breach.properties["title"] == "Adobe"
+    assert breach.properties["pwn_count"] == 152445165
+
+    assert len(result.relationships) == 1
+    assert result.relationships[0]["type"] == "EXPOSED_IN"
+    assert result.relationships[0]["from_id"] == email.id
+    assert result.relationships[0]["to_id"] == breach.id
+
+
+def test_hibp_transform_email_clean():
+    """Email sem breaches -> Email enriquecido, sem entidades Breach."""
+    from openm.transforms.hibp import HibpTransform
+    from openm.core.entity import Breach
+
+    email = Email(value="clean@example.com", properties={})
+    transform = HibpTransform()
+
+    intel = {
+        "value": "clean@example.com",
+        "type": "Email",
+        "source": "hibp",
+        "available": True,
+        "breaches": [],
+        "breach_count": 0,
+        "checked_at": "2026-06-27T18:00:00+00:00",
+    }
+
+    with patch(
+        "openm.transforms.hibp.HibpService.investigate_email",
+        return_value=intel,
+    ):
+        result = transform.run(email)
+
+    assert len(result.entities) == 1
+    assert result.entities[0].type == "Email"
+    assert not any(isinstance(e, Breach) for e in result.entities)
+    assert result.relationships == []
+
+
+def test_hibp_transform_email_unavailable():
+    """API indisponivel -> Email enriquecido com available=False."""
+    from openm.transforms.hibp import HibpTransform
+
+    email = Email(value="nobreach@example.com", properties={})
+    transform = HibpTransform()
+
+    intel = {
+        "value": "nobreach@example.com",
+        "type": "Email",
+        "source": "hibp",
+        "available": False,
+        "breaches": [],
+        "breach_count": 0,
+        "checked_at": "2026-06-27T18:00:00+00:00",
+    }
+
+    with patch(
+        "openm.transforms.hibp.HibpService.investigate_email",
+        return_value=intel,
+    ):
+        result = transform.run(email)
+
+    assert len(result.entities) == 1
+    assert result.entities[0].properties["hibp_available"] is False
+    assert result.relationships == []
+
+
+def test_hibp_transform_domain_paid_available():
+    """Dominio com acesso pago -> Domain + Emails + Breaches + edges."""
+    from openm.transforms.hibp import HibpTransform
+    from openm.core.entity import Breach
+
+    domain = Domain(value="example.com", properties={})
+    transform = HibpTransform()
+
+    intel = {
+        "value": "example.com",
+        "type": "Domain",
+        "source": "hibp",
+        "available": True,
+        "exposed_emails": [
+            {
+                "email": "alice@example.com",
+                "breaches": [
+                    {
+                        "Name": "Adobe",
+                        "Title": "Adobe",
+                        "Domain": "adobe.com",
+                        "BreachDate": "2013-10-04",
+                        "AddedDate": "2013-12-04T00:00:00Z",
+                        "ModifiedDate": "2022-05-25T21:35:40Z",
+                        "PwnCount": 152445165,
+                        "Description": "Test",
+                        "DataClasses": ["Email addresses", "Passwords"],
+                        "IsVerified": True,
+                        "IsFabricated": False,
+                        "IsSensitive": False,
+                        "IsRetired": False,
+                        "IsSpamList": False,
+                        "LogoPath": "Adobe.png",
+                    }
+                ],
+            }
+        ],
+        "exposed_email_count": 1,
+        "checked_at": "2026-06-27T18:00:00+00:00",
+    }
+
+    with patch(
+        "openm.transforms.hibp.HibpService.investigate_domain",
+        return_value=intel,
+    ):
+        result = transform.run(domain)
+
+    enriched = [e for e in result.entities if isinstance(e, Domain)][0]
+    assert enriched.id == domain.id
+    assert enriched.properties["hibp_available"] is True
+    assert enriched.properties["hibp_exposed_email_count"] == 1
+
+    emails = [e for e in result.entities if isinstance(e, Email)]
+    assert len(emails) == 1
+    assert emails[0].value == "alice@example.com"
+
+    breaches = [e for e in result.entities if isinstance(e, Breach)]
+    assert len(breaches) == 1
+    assert breaches[0].value == "Adobe"
+
+    has_exposed = [r for r in result.relationships if r["type"] == "HAS_EXPOSED_EMAIL"]
+    exposed_in = [r for r in result.relationships if r["type"] == "EXPOSED_IN"]
+    assert len(has_exposed) == 1
+    assert len(exposed_in) == 1
+
+
+def test_hibp_transform_domain_paid_unavailable():
+    """Dominio sem acesso pago -> apenas Domain enriquecido."""
+    from openm.transforms.hibp import HibpTransform
+
+    domain = Domain(value="example.com", properties={})
+    transform = HibpTransform()
+
+    intel = {
+        "value": "example.com",
+        "type": "Domain",
+        "source": "hibp",
+        "available": False,
+        "exposed_emails": [],
+        "exposed_email_count": 0,
+        "checked_at": "2026-06-27T18:00:00+00:00",
+    }
+
+    with patch(
+        "openm.transforms.hibp.HibpService.investigate_domain",
+        return_value=intel,
+    ):
+        result = transform.run(domain)
+
+    assert len(result.entities) == 1
+    assert result.entities[0].type == "Domain"
+    assert result.entities[0].properties["hibp_available"] is False
+    assert result.relationships == []
+
+
+def test_hibp_transform_skips_unsupported_type():
+    """IPAddress -> result vazio sem chamar HIBP."""
+    from openm.transforms.hibp import HibpTransform
+
+    ip = IPAddress(value="8.8.8.8")
+    transform = HibpTransform()
+
+    with patch("openm.transforms.hibp.HibpService.investigate_email") as mock_email, \
+         patch("openm.transforms.hibp.HibpService.investigate_domain") as mock_domain:
+        result = transform.run(ip)
+
+    mock_email.assert_not_called()
+    mock_domain.assert_not_called()
+    assert result.entities == []
+    assert result.relationships == []
+
+
+def test_hibp_transform_registered():
+    """HibpTransform aparece no registry para Email e Domain."""
+    from openm.core.transform import TransformRegistry
+    from openm.transforms.hibp import HibpTransform
+
+    assert TransformRegistry.get("hibp_breach_lookup") is HibpTransform
+
+    for supported in ("Email", "Domain"):
+        names = [t["name"] for t in TransformRegistry.list_for_type(supported)]
+        assert "hibp_breach_lookup" in names
+
+    for other_type in ("IPAddress", "Person", "Device", "BankAccount", "URL", "FileHash", "DnsRecord"):
+        assert "hibp_breach_lookup" not in [
+            t["name"] for t in TransformRegistry.list_for_type(other_type)
+        ]
+
+
+# ========================================================================
+# HIBP Service
+# ========================================================================
+
+
+def test_hibp_service_query_email_breaches_success(monkeypatch):
+    """query_email_breaches retorna lista parseada."""
+    from openm.services.hibp_service import HibpService
+
+    class FakeResponse:
+        status_code = 200
+
+        def json(self):
+            return [{"Name": "Adobe", "Title": "Adobe"}]
+
+    def fake_get(url, headers, params, timeout):
+        return FakeResponse()
+
+    monkeypatch.setattr("openm.services.hibp_service.requests.get", fake_get)
+    monkeypatch.setattr(HibpService, "get_key", staticmethod(lambda: "fake-key"))
+
+    result = HibpService.query_email_breaches("test@example.com")
+    assert result == [{"Name": "Adobe", "Title": "Adobe"}]
+
+
+def test_hibp_service_query_email_breaches_404_empty(monkeypatch):
+    """404 e interpretado como lista vazia (email limpo)."""
+    from openm.services.hibp_service import HibpService
+
+    class FakeResponse:
+        status_code = 404
+
+    monkeypatch.setattr(
+        "openm.services.hibp_service.requests.get",
+        lambda url, headers, params, timeout: FakeResponse(),
+    )
+    monkeypatch.setattr(HibpService, "get_key", staticmethod(lambda: "fake-key"))
+
+    result = HibpService.query_email_breaches("clean@example.com")
+    assert result == []
+
+
+def test_hibp_service_query_email_breaches_no_key_returns_none(monkeypatch):
+    """Sem chave -> None."""
+    from openm.services.hibp_service import HibpService
+
+    monkeypatch.setattr(HibpService, "get_key", staticmethod(lambda: None))
+
+    result = HibpService.query_email_breaches("test@example.com")
+    assert result is None
+
+
+def test_hibp_service_query_domain_breaches_unauthorized_returns_none(monkeypatch):
+    """Dominio sem acesso pago -> None (unavailable)."""
+    from openm.services.hibp_service import HibpService
+
+    class FakeResponse:
+        status_code = 401
+
+    monkeypatch.setattr(
+        "openm.services.hibp_service.requests.get",
+        lambda url, headers, params, timeout: FakeResponse(),
+    )
+    monkeypatch.setattr(HibpService, "get_key", staticmethod(lambda: "fake-key"))
+
+    result = HibpService.query_domain_breaches("example.com")
+    assert result is None
+
+
+def test_hibp_service_query_breach_details_success(monkeypatch):
+    """query_breach_details retorna dict de detalhes."""
+    from openm.services.hibp_service import HibpService
+
+    class FakeResponse:
+        status_code = 200
+
+        def json(self):
+            return {"Name": "Adobe", "Title": "Adobe", "PwnCount": 100}
+
+    monkeypatch.setattr(
+        "openm.services.hibp_service.requests.get",
+        lambda url, headers, params, timeout: FakeResponse(),
+    )
+    monkeypatch.setattr(HibpService, "get_key", staticmethod(lambda: "fake-key"))
+
+    result = HibpService.query_breach_details("Adobe")
+    assert result["Name"] == "Adobe"
+    assert result["PwnCount"] == 100
+
+
+def test_hibp_service_investigate_email_normalizes(monkeypatch):
+    """investigate_email normaliza breaches e contadores."""
+    from openm.services.hibp_service import HibpService
+
+    raw = [
+        {
+            "Name": "Adobe",
+            "Title": "Adobe",
+            "Domain": "adobe.com",
+            "BreachDate": "2013-10-04",
+            "AddedDate": "2013-12-04T00:00:00Z",
+            "ModifiedDate": "2022-05-25T21:35:40Z",
+            "PwnCount": 152445165,
+            "Description": "Test",
+            "DataClasses": ["Email addresses", "Passwords"],
+            "IsVerified": True,
+            "IsFabricated": False,
+            "IsSensitive": False,
+            "IsRetired": False,
+            "IsSpamList": False,
+            "LogoPath": "Adobe.png",
+        }
+    ]
+
+    class FakeResponse:
+        status_code = 200
+
+        def json(self):
+            return raw
+
+    def fake_get(url, headers, params, timeout):
+        return FakeResponse()
+
+    monkeypatch.setattr("openm.services.hibp_service.requests.get", fake_get)
+    monkeypatch.setattr(HibpService, "get_key", staticmethod(lambda: "fake-key"))
+
+    result = HibpService.investigate_email("test@example.com")
+    assert result["available"] is True
+    assert result["breach_count"] == 1
+    assert result["breaches"][0]["name"] == "Adobe"
+    assert result["breaches"][0]["is_verified"] is True

@@ -134,11 +134,21 @@ class DnsRecord(Entity):
         self.properties.setdefault("record_value", self.value)
 
 
+class Breach(Entity):
+    """Vazamento de dados (data breach) catalogado pelo Have I Been Pwned.
+
+    ``value`` é o nome técnico da breach (ex: 'Adobe'). Metadados como
+    ``title``, ``domain``, ``breach_date``, ``pwn_count`` e classes de
+    dados expostas ficam em ``properties``.
+    """
+    entity_type = "Breach"
+
+
 # Mapeamento de tipo-string para classe, usado pela API e pelos transforms.
 ENTITY_CLASSES = {
     cls.entity_type: cls
     for cls in [
         IPAddress, Email, Domain, Person, BankAccount, Device, URL, FileHash,
-        DnsRecord,
+        DnsRecord, Breach,
     ]
 }
