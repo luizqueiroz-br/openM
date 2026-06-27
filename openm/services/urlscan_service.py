@@ -26,9 +26,7 @@ import os
 import time
 from typing import Any, Dict, List, Optional
 
-import requests
-
-from openm.core.transform import increment_api_call_counter
+from openm.core import http_client
 from openm.extensions import db
 from openm.models.api_key import ApiKey
 
@@ -124,36 +122,31 @@ class UrlscanService:
             target = f"https://{target}"
 
         submit_url = f"{cls.BASE_URL}/scan/"
-        try:
-            resp = requests.post(
-                submit_url,
-                headers=cls._headers(),
-                json={"url": target, "visibility": visibility},
-                timeout=cls.DEFAULT_SUBMIT_TIMEOUT,
-            )
-        except requests.RequestException as exc:
-            logger.warning("URLScan submit falhou para %s: %s", target, exc)
+        resp = http_client.http_post(
+            submit_url,
+            headers=cls._headers(),
+            json={"url": target, "visibility": visibility},
+            timeout=cls.DEFAULT_SUBMIT_TIMEOUT,
+        )
+        if resp is None:
+            logger.warning("URLScan submit falhou para %s", target)
             return None
 
         if resp.status_code == 429:
-            increment_api_call_counter()
             logger.warning("URLScan rate-limit para %s", target)
             return _rate_limited(checked_at)
         if resp.status_code in (401, 403):
-            increment_api_call_counter()
             logger.warning(
                 "URLScan chave invalida para %s (status %d)", target, resp.status_code
             )
             return _unauthorized(checked_at)
         if resp.status_code != 200:
-            increment_api_call_counter()
             logger.warning(
                 "URLScan resposta nao tratada para %s: status=%d",
                 target, resp.status_code,
             )
             return None
 
-        increment_api_call_counter()
         try:
             submit_data = resp.json()
         except ValueError:
@@ -203,14 +196,18 @@ class UrlscanService:
             attempt += 1
 
             url = f"{cls.BASE_URL}/result/{scan_uuid}/"
-            try:
-                resp = requests.get(url, headers=cls._headers(), timeout=cls.DEFAULT_RESULT_TIMEOUT)
-            except requests.RequestException as exc:
-                logger.warning("URLScan result poll falhou: %s", exc)
+            resp = http_client.http_get(
+                url,
+                headers=cls._headers(),
+                timeout=cls.DEFAULT_RESULT_TIMEOUT,
+                max_retries=1,
+                backoff_schedule=(0.0,),
+            )
+            if resp is None:
+                logger.warning("URLScan result poll falhou (uuid=%s)", scan_uuid)
                 continue
 
             if resp.status_code == 200:
-                increment_api_call_counter()
                 try:
                     data = resp.json()
                 except ValueError:
@@ -220,10 +217,8 @@ class UrlscanService:
 
             if resp.status_code == 404:
                 # Scan ainda processando.
-                increment_api_call_counter()
                 continue
 
-            increment_api_call_counter()
             logger.warning(
                 "URLScan result poll status inesperado %d (uuid=%s)",
                 resp.status_code, scan_uuid,
