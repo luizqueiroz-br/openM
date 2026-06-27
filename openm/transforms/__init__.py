@@ -8,6 +8,7 @@ from .hunter_email import HunterEmailTransform
 from .virustotal import VirusTotalTransform
 from .reverse_dns import ReverseDnsTransform
 from .crtsh import CrtShTransform
+from .email_to_domain import EmailToDomainTransform
 
 __all__ = [
     "ResolveIPTransform",
@@ -20,4 +21,5 @@ __all__ = [
     "VirusTotalTransform",
     "ReverseDnsTransform",
     "CrtShTransform",
+    "EmailToDomainTransform",
 ]

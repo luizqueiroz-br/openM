@@ -2748,3 +2748,206 @@ class TestHunterEmailTransform:
         entity = Email(value="x@y.com")
         result = HunterEmailTransform().run(entity)
         assert result.entities[0].id == entity.id
+
+
+# ====================================================================
+# EmailToDomain Transform (issue #64)
+# ====================================================================
+
+
+def test_email_to_domain_basic():
+    """Email -> 1 Domain extraido + edge BELONGS_TO."""
+    from openm.transforms.email_to_domain import EmailToDomainTransform
+
+    email = Email(value="jane.doe@example.com")
+    transform = EmailToDomainTransform()
+
+    result = transform.run(email)
+
+    # 1 Domain criado
+    assert len(result.entities) == 1
+    domain = result.entities[0]
+    assert isinstance(domain, Domain)
+    assert domain.value == "example.com"
+    assert domain.properties["extracted_from_email"] == "jane.doe@example.com"
+    assert domain.properties["source"] == "email_parse"
+    assert "discovered_at" in domain.properties
+
+    # 1 edge BELONGS_TO do email para o domain
+    assert len(result.relationships) == 1
+    rel = result.relationships[0]
+    assert rel["type"] == "BELONGS_TO"
+    assert rel["from_id"] == email.id
+    assert rel["to_id"] == domain.id
+    assert rel["properties"]["source"] == "email_parse"
+
+
+def test_email_to_domain_simple_email():
+    """Email sem pontos no local part."""
+    from openm.transforms.email_to_domain import EmailToDomainTransform
+
+    email = Email(value="admin@example.com")
+    transform = EmailToDomainTransform()
+
+    result = transform.run(email)
+
+    assert len(result.entities) == 1
+    assert result.entities[0].value == "example.com"
+
+
+def test_email_to_domain_subdomain_email():
+    """Email com subdominio (user@mail.example.com)."""
+    from openm.transforms.email_to_domain import EmailToDomainTransform
+
+    email = Email(value="user@mail.example.com")
+    transform = EmailToDomainTransform()
+
+    result = transform.run(email)
+
+    assert len(result.entities) == 1
+    assert result.entities[0].value == "mail.example.com"
+
+
+def test_email_to_domain_uppercase_normalized():
+    """Email em maiusculas e normalizado para lowercase no dominio."""
+    from openm.transforms.email_to_domain import EmailToDomainTransform
+
+    email = Email(value="User@Example.COM")
+    transform = EmailToDomainTransform()
+
+    result = transform.run(email)
+
+    assert len(result.entities) == 1
+    assert result.entities[0].value == "example.com"
+
+
+def test_email_to_domain_strips_whitespace():
+    """Email com whitespace e trimado."""
+    from openm.transforms.email_to_domain import EmailToDomainTransform
+
+    email = Email(value="  user@example.com  ")
+    transform = EmailToDomainTransform()
+
+    result = transform.run(email)
+
+    assert len(result.entities) == 1
+    assert result.entities[0].value == "example.com"
+
+
+def test_email_to_domain_invalid_no_at_returns_empty():
+    """Email sem @ -> resultado vazio."""
+    from openm.transforms.email_to_domain import EmailToDomainTransform
+
+    email = Email(value="not-an-email")
+    transform = EmailToDomainTransform()
+
+    result = transform.run(email)
+
+    assert result.entities == []
+    assert result.relationships == []
+
+
+def test_email_to_domain_invalid_empty_local_returns_empty():
+    """Email com local part vazio (@example.com) -> resultado vazio."""
+    from openm.transforms.email_to_domain import EmailToDomainTransform
+
+    email = Email(value="@example.com")
+    transform = EmailToDomainTransform()
+
+    result = transform.run(email)
+
+    assert result.entities == []
+    assert result.relationships == []
+
+
+def test_email_to_domain_invalid_empty_domain_returns_empty():
+    """Email com domain vazio (user@) -> resultado vazio."""
+    from openm.transforms.email_to_domain import EmailToDomainTransform
+
+    email = Email(value="user@")
+    transform = EmailToDomainTransform()
+
+    result = transform.run(email)
+
+    assert result.entities == []
+    assert result.relationships == []
+
+
+def test_email_to_domain_invalid_no_dot_returns_empty():
+    """Email com domain sem ponto (user@localhost) -> resultado vazio."""
+    from openm.transforms.email_to_domain import EmailToDomainTransform
+
+    email = Email(value="user@localhost")
+    transform = EmailToDomainTransform()
+
+    result = transform.run(email)
+
+    assert result.entities == []
+    assert result.relationships == []
+
+
+def test_email_to_domain_invalid_multiple_at_returns_empty():
+    """Email com multiplos @ (user@@example.com) -> resultado vazio."""
+    from openm.transforms.email_to_domain import EmailToDomainTransform
+
+    email = Email(value="user@@example.com")
+    transform = EmailToDomainTransform()
+
+    result = transform.run(email)
+
+    assert result.entities == []
+    assert result.relationships == []
+
+
+def test_email_to_domain_skips_non_email():
+    """Template method: Domain -> vazio."""
+    from openm.transforms.email_to_domain import EmailToDomainTransform
+
+    domain = Domain(value="example.com")
+    transform = EmailToDomainTransform()
+
+    result = transform.run(domain)
+
+    assert result.entities == []
+    assert result.relationships == []
+
+
+def test_email_to_domain_registered():
+    """EmailToDomainTransform aparece no TransformRegistry para Email."""
+    from openm.core.transform import TransformRegistry
+    from openm.transforms.email_to_domain import EmailToDomainTransform
+
+    assert TransformRegistry.get("email_to_domain") is EmailToDomainTransform
+
+    compatible = TransformRegistry.list_for_type("Email")
+    names = [t["name"] for t in compatible]
+    assert "email_to_domain" in names
+
+    # Nao aparece para outros tipos
+    for other_type in ("Domain", "IPAddress", "Person", "Device", "BankAccount", "URL", "FileHash"):
+        assert "email_to_domain" not in [
+            t["name"] for t in TransformRegistry.list_for_type(other_type)
+        ]
+
+
+def test_email_to_domain_extract_domain_unit():
+    """Unit tests para _extract_domain (helper interno)."""
+    from openm.transforms.email_to_domain import _extract_domain
+
+    # Casos validos
+    assert _extract_domain("user@example.com") == "example.com"
+    assert _extract_domain("user@mail.example.com") == "mail.example.com"
+    assert _extract_domain("USER@EXAMPLE.COM") == "example.com"
+    assert _extract_domain("  user@example.com  ") == "example.com"
+    assert _extract_domain("user+tag@example.com") == "example.com"
+
+    # Casos invalidos
+    assert _extract_domain("") == ""
+    assert _extract_domain("not-an-email") == ""
+    assert _extract_domain("@example.com") == ""
+    assert _extract_domain("user@") == ""
+    assert _extract_domain("user@localhost") == ""
+    assert _extract_domain("user@.example.com") == ""
+    assert _extract_domain("user@example.com.") == ""
+    assert _extract_domain("user@@example.com") == ""
+    assert _extract_domain("user@a@b.com") == ""
