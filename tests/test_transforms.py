@@ -275,6 +275,380 @@ def test_dns_service_reverse_dns_resets_timeout():
     assert socket.getdefaulttimeout() is None
 
 
+# ====================================================================
+# crt.sh Transform
+# ====================================================================
+
+
+def test_crtsh_transform_with_subdomains():
+    """Domain com 3 subdomínios via crt.sh → 1 Domain enriquecido + 3 subdomains + 3 edges."""
+    from openm.transforms.crtsh import CrtShTransform
+
+    domain = Domain(value="example.com", properties={})
+    transform = CrtShTransform()
+
+    crtsh_entries = [
+        {"name_value": "sub1.example.com\nsub2.example.com"},
+        {"name_value": "sub3.example.com"},
+        {"name_value": "*.wild.example.com\nsub1.example.com"},  # dedup + wildcard
+    ]
+
+    with patch(
+        "openm.transforms.crtsh.query_crtsh",
+        return_value=crtsh_entries,
+    ):
+        result = transform.run(domain)
+
+    # 1 Domain pai enriquecido + 3 subdomains únicos (sub1, sub2, sub3, wild)
+    # Wildcards são normalizados (sem "*.") → "wild.example.com"
+    domain_entities = [e for e in result.entities if e.type == "Domain" and e.value == "example.com"]
+    sub_entities = [e for e in result.entities if e.type == "Domain" and e.value != "example.com"]
+    assert len(domain_entities) == 1
+    assert len(sub_entities) == 4  # sub1, sub2, sub3, wild.example.com
+
+    # Propriedades do Domain pai
+    parent = domain_entities[0]
+    assert parent.properties["crtsh_subdomain_count"] == 4
+    assert parent.properties["crtsh_certificate_count"] == 3
+    assert parent.properties["crtsh_available"] is True
+    assert parent.properties["crtsh_source"] == "crt.sh"
+    assert "crtsh_checked_at" in parent.properties
+
+    # Edges HAS_SUBDOMAIN
+    assert len(result.relationships) == 4
+    assert all(r["type"] == "HAS_SUBDOMAIN" for r in result.relationships)
+    assert all(r["from_id"] == domain.id for r in result.relationships)
+    assert all(r["properties"]["source"] == "crt.sh" for r in result.relationships)
+
+    # Subdomains têm flag is_subdomain e parent_domain
+    for sub in sub_entities:
+        assert sub.properties["is_subdomain"] is True
+        assert sub.properties["parent_domain"] == "example.com"
+        assert sub.properties["source"] == "crt.sh"
+        assert "discovered_at" in sub.properties
+
+
+def test_crtsh_transform_no_results():
+    """crt.sh retorna lista vazia → Domain enriquecido com count=0, sem subdomains."""
+    from openm.transforms.crtsh import CrtShTransform
+
+    domain = Domain(value="empty.com", properties={})
+    transform = CrtShTransform()
+
+    with patch(
+        "openm.transforms.crtsh.query_crtsh",
+        return_value=[],
+    ):
+        result = transform.run(domain)
+
+    # Apenas o Domain pai, sem subdomains
+    assert len(result.entities) == 1
+    assert result.entities[0].value == "empty.com"
+    assert result.entities[0].properties["crtsh_subdomain_count"] == 0
+    assert result.entities[0].properties["crtsh_available"] is True
+    assert result.relationships == []
+
+
+def test_crtsh_transform_api_failure():
+    """query_crtsh retorna None (falha) → Domain enriquecido com available=False."""
+    from openm.transforms.crtsh import CrtShTransform
+
+    domain = Domain(value="broken.com", properties={})
+    transform = CrtShTransform()
+
+    with patch(
+        "openm.transforms.crtsh.query_crtsh",
+        return_value=None,
+    ):
+        result = transform.run(domain)
+
+    # Apenas o Domain pai, marcado como indisponível
+    assert len(result.entities) == 1
+    assert result.entities[0].value == "broken.com"
+    assert result.entities[0].properties["crtsh_available"] is False
+    assert result.entities[0].properties["crtsh_subdomain_count"] == 0
+    assert result.relationships == []
+
+
+def test_crtsh_transform_preserves_entity_id():
+    """Domain enriquecido mantém o mesmo id da entidade original."""
+    from openm.transforms.crtsh import CrtShTransform
+
+    domain = Domain(value="example.com", properties={})
+    transform = CrtShTransform()
+
+    with patch(
+        "openm.transforms.crtsh.query_crtsh",
+        return_value=[{"name_value": "sub.example.com"}],
+    ):
+        result = transform.run(domain)
+
+    parent = [e for e in result.entities if e.value == "example.com"][0]
+    assert parent.id == domain.id
+
+
+def test_crtsh_transform_skips_non_domain():
+    """Template method: Email → vazio sem chamar query_crtsh."""
+    from openm.transforms.crtsh import CrtShTransform
+
+    email = Email(value="a@b.com")
+    transform = CrtShTransform()
+
+    with patch("openm.transforms.crtsh.query_crtsh") as mock:
+        result = transform.run(email)
+
+    mock.assert_not_called()
+    assert result.entities == []
+    assert result.relationships == []
+
+
+def test_crtsh_transform_registered():
+    """CrtShTransform aparece no TransformRegistry para Domain."""
+    from openm.core.transform import TransformRegistry
+    from openm.transforms.crtsh import CrtShTransform
+
+    assert TransformRegistry.get("crtsh_lookup") is CrtShTransform
+
+    compatible = TransformRegistry.list_for_type("Domain")
+    names = [t["name"] for t in compatible]
+    assert "crtsh_lookup" in names
+
+    # Não aparece para outros tipos
+    for other_type in ("IPAddress", "Email", "Person", "Device", "BankAccount", "URL", "FileHash"):
+        assert "crtsh_lookup" not in [
+            t["name"] for t in TransformRegistry.list_for_type(other_type)
+        ]
+
+
+def test_crtsh_transform_filters_other_domains():
+    """Entries que não são subdomínios do parent são filtrados."""
+    from openm.transforms.crtsh import CrtShTransform
+
+    domain = Domain(value="example.com", properties={})
+    transform = CrtShTransform()
+
+    # "other.org" não é subdomínio de "example.com" — deve ser filtrado
+    crtsh_entries = [
+        {
+            "name_value": (
+                "sub.example.com\nother.org\n"
+                "deeply.nested.example.com\nunrelated.com"
+            )
+        },
+    ]
+
+    with patch(
+        "openm.transforms.crtsh.query_crtsh",
+        return_value=crtsh_entries,
+    ):
+        result = transform.run(domain)
+
+    sub_values = {e.value for e in result.entities if e.value != "example.com"}
+    # Apenas subdomínios de example.com
+    assert sub_values == {"sub.example.com", "deeply.nested.example.com"}
+
+
+def test_crtsh_transform_wildcard_normalization():
+    """Wildcards (*.foo.example.com) são normalizados para foo.example.com."""
+    from openm.transforms.crtsh import CrtShTransform
+
+    domain = Domain(value="example.com", properties={})
+    transform = CrtShTransform()
+
+    crtsh_entries = [
+        {"name_value": "*.api.example.com"},
+        {"name_value": "*.cdn.example.com\nother.example.com"},
+    ]
+
+    with patch(
+        "openm.transforms.crtsh.query_crtsh",
+        return_value=crtsh_entries,
+    ):
+        result = transform.run(domain)
+
+    sub_values = {e.value for e in result.entities if e.value != "example.com"}
+    # Wildcards removidos
+    assert sub_values == {"api.example.com", "cdn.example.com", "other.example.com"}
+
+
+# ====================================================================
+# crt.sh Service — unit tests
+# ====================================================================
+
+
+def test_crtsh_service_query_success():
+    """query_crtsh faz request HTTP e retorna lista de dicts."""
+    import json
+    import urllib.request
+    from openm.services.crtsh_service import query_crtsh
+
+    fake_payload = json.dumps([
+        {"name_value": "sub.example.com", "id": 1},
+        {"name_value": "other.example.com", "id": 2},
+    ]).encode("utf-8")
+
+    class FakeResp:
+        def __init__(self, payload):
+            self.payload = payload
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *args):
+            pass
+
+        def read(self):
+            return self.payload
+
+    def fake_urlopen(req, timeout):
+        return FakeResp(fake_payload)
+
+    with patch.object(urllib.request, "urlopen", fake_urlopen):
+        result = query_crtsh("example.com")
+
+    assert result is not None
+    assert len(result) == 2
+    assert result[0]["name_value"] == "sub.example.com"
+
+
+def test_crtsh_service_query_url_error_returns_none():
+    """Falha de rede → None."""
+    import urllib.error
+    import urllib.request
+    from openm.services.crtsh_service import query_crtsh
+
+    def fake_urlopen(req, timeout):
+        raise urllib.error.URLError("network down")
+
+    with patch.object(urllib.request, "urlopen", fake_urlopen):
+        result = query_crtsh("example.com")
+
+    assert result is None
+
+
+def test_crtsh_service_query_http_error_returns_none():
+    """HTTP 5xx → None."""
+    import urllib.error
+    import urllib.request
+    from openm.services.crtsh_service import query_crtsh
+
+    def fake_urlopen(req, timeout):
+        raise urllib.error.HTTPError(
+            "https://crt.sh", 503, "Service Unavailable", {}, None
+        )
+
+    with patch.object(urllib.request, "urlopen", fake_urlopen):
+        result = query_crtsh("example.com")
+
+    assert result is None
+
+
+def test_crtsh_service_query_invalid_json_returns_none():
+    """JSON inválido → None."""
+    import urllib.request
+    from openm.services.crtsh_service import query_crtsh
+
+    class FakeResp:
+        def __init__(self):
+            self.payload = b"not json at all"
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *args):
+            pass
+
+        def read(self):
+            return self.payload
+
+    with patch.object(urllib.request, "urlopen", lambda req, timeout: FakeResp()):
+        result = query_crtsh("example.com")
+
+    assert result is None
+
+
+def test_crtsh_service_query_non_list_returns_empty():
+    """Resposta JSON que não é lista → [] (não None)."""
+    import json
+    import urllib.request
+    from openm.services.crtsh_service import query_crtsh
+
+    class FakeResp:
+        def __init__(self):
+            self.payload = json.dumps({"error": "rate limited"}).encode("utf-8")
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *args):
+            pass
+
+        def read(self):
+            return self.payload
+
+    with patch.object(urllib.request, "urlopen", lambda req, timeout: FakeResp()):
+        result = query_crtsh("example.com")
+
+    assert result == []
+
+
+def test_crtsh_service_extract_subdomains_basic():
+    """extract_subdomains deduplica e normaliza."""
+    from openm.services.crtsh_service import extract_subdomains
+
+    entries = [
+        {"name_value": "sub1.example.com\nsub2.example.com"},
+        {"name_value": "sub1.example.com"},  # dup
+        {"name_value": "*.api.example.com"},  # wildcard
+    ]
+    result = extract_subdomains(entries, "example.com", max_results=100)
+    assert result == ["api.example.com", "sub1.example.com", "sub2.example.com"]
+
+
+def test_crtsh_service_extract_subdomains_filters_others():
+    """Domínios que não são subdomínios do parent são filtrados."""
+    from openm.services.crtsh_service import extract_subdomains
+
+    entries = [
+        {"name_value": "sub.example.com\nother.org\nstranger.com"},
+    ]
+    result = extract_subdomains(entries, "example.com", max_results=100)
+    assert result == ["sub.example.com"]
+
+
+def test_crtsh_service_extract_subdomains_max_results():
+    """max_results limita a saída."""
+    from openm.services.crtsh_service import extract_subdomains
+
+    entries = [
+        {"name_value": "\n".join(f"sub{i}.example.com" for i in range(50))},
+    ]
+    result = extract_subdomains(entries, "example.com", max_results=10)
+    assert len(result) == 10
+
+
+def test_crtsh_service_extract_subdomains_skips_empty_and_self():
+    """Linhas vazias e o próprio parent_domain são ignorados."""
+    from openm.services.crtsh_service import extract_subdomains
+
+    entries = [
+        {"name_value": "example.com\n\n  \nsub.example.com"},
+    ]
+    result = extract_subdomains(entries, "example.com", max_results=100)
+    assert result == ["sub.example.com"]
+
+
+def test_crtsh_service_extract_subdomains_case_insensitive():
+    """Domínios são normalizados para lowercase."""
+    from openm.services.crtsh_service import extract_subdomains
+
+    entries = [
+        {"name_value": "Sub.Example.COM\nANOTHER.example.com"},
+    ]
+    result = extract_subdomains(entries, "example.com", max_results=100)
+    assert result == ["another.example.com", "sub.example.com"]
+
+
 def test_fraud_email_transform_simulation():
     email = Email(value="test@example.com")
     transform = CheckFraudEmailTransform()
