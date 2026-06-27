@@ -1,4 +1,5 @@
 import logging
+import os
 import re
 import socket
 import time
@@ -1406,9 +1407,10 @@ class WhoisService:
         """
         Orquestra consulta WHOIS com fallback simulado.
 
-        Se a consulta real falhar ou retornar dados vazios,
-        retorna dados simulados controlados para manter a
-        experiência do usuário.
+        Se a consulta real falhar ou retornar dados vazios, delega
+        para ``SimulatedWhoisService.investigate_domain`` (issue #85:
+        Mock vs Real como camada explicita). O resultado tera
+        ``simulated=True`` explicito.
         """
         result = WhoisService.query(domain)
 
@@ -1424,20 +1426,67 @@ class WhoisService:
         )
 
         if not has_data:
-            # Simulação controlada
-            result["source"] = "whois_simulated"
-            result["registrar"] = "Example Registrar, Inc."
-            result["creation_date"] = "2020-01-15T00:00:00Z"
-            result["expiry_date"] = "2027-01-15T00:00:00Z"
-            result["updated_date"] = datetime.now(timezone.utc).isoformat()
-            result["nameservers"] = ["ns1.example.com", "ns2.example.com"]
-            result["status"] = ["clientTransferProhibited"]
-            result["dnssec"] = "unsigned"
-            result["registrant_org"] = "Example Organization"
-            result["registrant_email"] = f"admin@{domain}"
-            result["registrant_country"] = "US"
-            result["admin_email"] = f"admin@{domain}"
-            result["tech_email"] = f"tech@{domain}"
-            result["raw"] = "(simulated WHOIS data)"
+            simulated = SimulatedWhoisService.investigate_domain(domain)
+            # Mantem o source original ('' ou 'whois') mas marca simulated.
+            simulated["simulated"] = True
+            return simulated
 
+        result["simulated"] = False
         return result
+
+
+class SimulatedWhoisService:
+    """Implementacao simulada de WHOIS (issue #85).
+
+    Retorna dados plausiveis para qualquer dominio quando o backend
+    real nao esta disponivel. Usado por ``WhoisService.investigate_domain``
+    como fallback explicito e pode ser usado diretamente em dev/demo
+    via ``OPENM_WHOIS_MODE=simulated``.
+    """
+
+    source_label = "whois_simulated"
+
+    @staticmethod
+    def investigate_domain(domain: str) -> Dict[str, Any]:
+        """Retorna dados WHOIS simulados controlados."""
+        return {
+            "domain": domain,
+            "registrar": "Example Registrar, Inc.",
+            "creation_date": "2020-01-15T00:00:00Z",
+            "expiry_date": "2027-01-15T00:00:00Z",
+            "updated_date": datetime.now(timezone.utc).isoformat(),
+            "nameservers": ["ns1.example.com", "ns2.example.com"],
+            "status": ["clientTransferProhibited"],
+            "dnssec": "unsigned",
+            "registrant_org": "Example Organization",
+            "registrant_email": f"admin@{domain}",
+            "registrant_country": "US",
+            "admin_email": f"admin@{domain}",
+            "tech_email": f"tech@{domain}",
+            "raw": "(simulated WHOIS data)",
+            "source": SimulatedWhoisService.source_label,
+        }
+
+
+def _resolve_whois_mode() -> str:
+    """Resolve modo via env var."""
+    forced = os.environ.get("OPENM_WHOIS_MODE", "").lower()
+    if forced in ("real", "simulated"):
+        return forced
+    return "real"  # default: tenta o backend real
+
+
+def get_whois_service():
+    """
+    Factory: retorna a implementacao adequada de WHOIS.
+
+    Decisao:
+      - ``OPENM_WHOIS_MODE=real`` → sempre WhoisService (backend nativo).
+      - ``OPENM_WHOIS_MODE=simulated`` → sempre SimulatedWhoisService.
+      - Caso contrario: WhoisService real.
+    """
+    mode = _resolve_whois_mode()
+    if mode == "simulated":
+        logger.debug("WHOIS factory: usando SimulatedWhoisService")
+        return SimulatedWhoisService()
+    return WhoisService
