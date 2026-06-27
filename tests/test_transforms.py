@@ -3,7 +3,7 @@ from unittest.mock import patch
 
 import dns.resolver
 import openm.transforms  # noqa: F401 — dispara o @Transform.register em todos os transforms
-from openm.core.entity import Domain, Email, IPAddress, URL
+from openm.core.entity import Domain, Email, IPAddress, Person, URL
 from openm.transforms.fraud_email import CheckFraudEmailTransform
 from openm.transforms.resolve_ip import ResolveIPTransform
 from openm.transforms.shodan import ShodanTransform
@@ -5043,3 +5043,242 @@ def test_urlscan_service_pending_when_timeout(monkeypatch):
     assert result["available"] is False
     assert result["pending"] is True
     assert result["uuid"] == "abc"
+
+
+# ========================================================================
+# Person → Domain Discovery Transform
+# ========================================================================
+
+
+def test_person_domain_transform_with_email_only():
+    """Person com email -> Domain extraido + ASSOCIATED_WITH edge."""
+    from openm.transforms.person_discovery import PersonToDomainTransform
+
+    person = Person(
+        value="John Doe",
+        properties={"email": "john.doe@example.com"},
+    )
+    transform = PersonToDomainTransform()
+
+    with patch(
+        "openm.transforms.person_discovery.HunterService.investigate_domain",
+        return_value=None,
+    ):
+        result = transform.run(person)
+
+    enriched = [e for e in result.entities if isinstance(e, Person)][0]
+    assert enriched.id == person.id
+    assert enriched.properties["person_domain_source"] == "email"
+    assert enriched.properties["person_associated_domains"] == ["example.com"]
+
+    domains = [e for e in result.entities if isinstance(e, Domain)]
+    assert len(domains) == 1
+    assert domains[0].value == "example.com"
+    assert domains[0].properties["source"] == "email_parse"
+
+    emails = [e for e in result.entities if isinstance(e, Email)]
+    assert len(emails) == 1
+    assert emails[0].value == "john.doe@example.com"
+
+    associated = [r for r in result.relationships if r["type"] == "ASSOCIATED_WITH"]
+    assert len(associated) == 1
+    assert associated[0]["from_id"] == person.id
+    assert associated[0]["to_id"] == domains[0].id
+
+    belongs_to = [r for r in result.relationships if r["type"] == "BELONGS_TO"]
+    assert len(belongs_to) == 1
+    assert belongs_to[0]["from_id"] == emails[0].id
+    assert belongs_to[0]["to_id"] == domains[0].id
+
+
+def test_person_domain_transform_with_org_and_hunter():
+    """Person com organization -> Hunter descobre domains adicionais."""
+    from openm.transforms.person_discovery import PersonToDomainTransform
+
+    person = Person(
+        value="Jane Smith",
+        properties={"organization": "Acme Inc."},
+    )
+    transform = PersonToDomainTransform()
+
+    hunter_intel = {
+        "domain": "acme.com",
+        "source": "hunter",
+        "available": True,
+        "organization": "Acme Inc.",
+        "pattern": "{first}.{last}",
+        "accept_all": False,
+        "linked_domains": ["acme.io", "acme-staging.com"],
+        "people": [
+            {
+                "first_name": "Jane",
+                "last_name": "Smith",
+                "email": "jane.smith@acme.com",
+                "position": "CEO",
+            }
+        ],
+    }
+
+    with patch(
+        "openm.transforms.person_discovery.HunterService.investigate_domain",
+        return_value=hunter_intel,
+    ):
+        result = transform.run(person)
+
+    enriched = [e for e in result.entities if isinstance(e, Person)][0]
+    assert enriched.properties["person_domain_source"] == "hunter"
+    assert enriched.properties["person_domain_hunter_available"] is True
+    assert enriched.properties["person_domain_hunter_pattern"] == "{first}.{last}"
+    assert "acme.com" in enriched.properties["person_associated_domains"]
+    assert "acme.io" in enriched.properties["person_associated_domains"]
+    assert "acme-staging.com" in enriched.properties["person_associated_domains"]
+
+    domains = {e.value: e for e in result.entities if isinstance(e, Domain)}
+    assert "acme.com" in domains
+    assert "acme.io" in domains
+    assert "acme-staging.com" in domains
+    assert domains["acme.com"].properties["source"] == "hunter_domain_search"
+    assert domains["acme.io"].properties["source"] == "hunter_linked_domain"
+
+    emails = {e.value: e for e in result.entities if isinstance(e, Email)}
+    assert "jane.smith@acme.com" in emails
+
+    belongs_to = [r for r in result.relationships if r["type"] == "BELONGS_TO"]
+    assert len(belongs_to) >= 1
+
+
+def test_person_domain_transform_hunter_quota_exceeded():
+    """Hunter quota exhausted -> result sem hunter, sem linked domains."""
+    from openm.transforms.person_discovery import PersonToDomainTransform
+
+    person = Person(
+        value="Bob",
+        properties={"email": "bob@example.com", "organization": "Big Corp"},
+    )
+    transform = PersonToDomainTransform()
+
+    hunter_intel = {
+        "domain": "big-corp.com",
+        "available": False,
+        "quota_exceeded": True,
+        "linked_domains": [],
+        "people": [],
+    }
+
+    with patch(
+        "openm.transforms.person_discovery.HunterService.investigate_domain",
+        return_value=hunter_intel,
+    ):
+        result = transform.run(person)
+
+    enriched = [e for e in result.entities if isinstance(e, Person)][0]
+    assert enriched.properties["person_domain_hunter_available"] is False
+    assert enriched.properties["person_domain_hunter_quota_exceeded"] is True
+    # Dominio do email continua presente mesmo sem Hunter
+    domains = [e for e in result.entities if isinstance(e, Domain)]
+    assert {d.value for d in domains} == {"example.com"}
+
+
+def test_person_domain_transform_no_email_no_org():
+    """Person sem email nem org -> result vazio (Person enriquecida)."""
+    from openm.transforms.person_discovery import PersonToDomainTransform
+
+    person = Person(value="Anonymous", properties={})
+    transform = PersonToDomainTransform()
+
+    with patch(
+        "openm.transforms.person_discovery.HunterService.investigate_domain",
+        return_value=None,
+    ):
+        result = transform.run(person)
+
+    enriched = [e for e in result.entities if isinstance(e, Person)][0]
+    assert enriched.properties["person_associated_domains"] == []
+    assert enriched.properties["person_domain_source"] == "none"
+    # Sem dominios, sem emails, sem edges (so a Person enriquecida).
+    assert len([e for e in result.entities if isinstance(e, Domain)]) == 0
+    assert len([e for e in result.entities if isinstance(e, Email)]) == 0
+    assert result.relationships == []
+
+
+def test_person_domain_transform_invalid_email_returns_empty():
+    """Email malformado -> result vazio (Person enriquecida sem dominios)."""
+    from openm.transforms.person_discovery import PersonToDomainTransform
+
+    person = Person(
+        value="Bad Email",
+        properties={"email": "not-an-email"},
+    )
+    transform = PersonToDomainTransform()
+
+    with patch(
+        "openm.transforms.person_discovery.HunterService.investigate_domain",
+        return_value=None,
+    ):
+        result = transform.run(person)
+
+    enriched = [e for e in result.entities if isinstance(e, Person)][0]
+    assert enriched.properties["person_associated_domains"] == []
+    assert len([e for e in result.entities if isinstance(e, Domain)]) == 0
+
+
+def test_person_domain_transform_skips_non_person():
+    """IPAddress nao e aceito -> result vazio."""
+    from openm.transforms.person_discovery import PersonToDomainTransform
+
+    ip = IPAddress(value="8.8.8.8")
+    transform = PersonToDomainTransform()
+
+    with patch(
+        "openm.transforms.person_discovery.HunterService.investigate_domain"
+    ) as mock:
+        result = transform.run(ip)
+
+    mock.assert_not_called()
+    assert result.entities == []
+    assert result.relationships == []
+
+
+def test_person_domain_transform_registered():
+    """PersonToDomainTransform aparece no registry para Person."""
+    from openm.core.transform import TransformRegistry
+    from openm.transforms.person_discovery import PersonToDomainTransform
+
+    assert TransformRegistry.get("person_domain_discovery") is PersonToDomainTransform
+
+    names = [t["name"] for t in TransformRegistry.list_for_type("Person")]
+    assert "person_domain_discovery" in names
+
+    for other_type in ("Domain", "Email", "IPAddress", "URL", "Device"):
+        assert "person_domain_discovery" not in [
+            t["name"] for t in TransformRegistry.list_for_type(other_type)
+        ]
+
+
+def test_person_domain_guess_org_domain():
+    """Helper _guess_domain_from_org normaliza nomes corporativos."""
+    from openm.transforms.person_discovery import _guess_domain_from_org
+
+    assert _guess_domain_from_org("Acme Inc.") == "acme.com"
+    assert _guess_domain_from_org("Acme Corp") == "acme.com"
+    assert _guess_domain_from_org("Big Corp Ltd.") == "big.com"
+    assert _guess_domain_from_org("Foo S.A.") == "foo.com"
+    assert _guess_domain_from_org("Foo S.A") == "foo.com"
+    assert _guess_domain_from_org("") == ""
+    assert _guess_domain_from_org("1234") == ""
+    assert _guess_domain_from_org("Acme") == "acme.com"
+
+
+def test_person_domain_extract_from_email():
+    """Helper _extract_domain_from_email valida formato."""
+    from openm.transforms.person_discovery import _extract_domain_from_email
+
+    assert _extract_domain_from_email("a@b.com") == "b.com"
+    assert _extract_domain_from_email("UPPER@Lower.NET") == "lower.net"
+    assert _extract_domain_from_email("no-at-sign") == ""
+    assert _extract_domain_from_email("@nodomain.com") == ""
+    assert _extract_domain_from_email("nolocal@nodot") == ""
+    assert _extract_domain_from_email("") == ""
+    # Multiplos @ sao rejeitados: a parte apos o primeiro @ nao pode
+    # conter outro @ (rejeitado pelo helper).
+    assert _extract_domain_from_email("double@@at.com") == ""
