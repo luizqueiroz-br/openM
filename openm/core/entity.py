@@ -86,8 +86,13 @@ class Device(Entity):
     entity_type = "Device"
 
 
+class URL(Entity):
+    """URL completa (scheme + host + path). Ex: https://example.com/login."""
+    entity_type = "URL"
+
+
 # Mapeamento de tipo-string para classe, usado pela API e pelos transforms.
 ENTITY_CLASSES = {
     cls.entity_type: cls
-    for cls in [IPAddress, Email, Domain, Person, BankAccount, Device]
+    for cls in [IPAddress, Email, Domain, Person, BankAccount, Device, URL]
 }
