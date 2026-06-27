@@ -13,6 +13,7 @@ from .ssl_cert import SslCertTransform
 from .dns_records import DnsRecordsTransform
 from .abuseipdb import AbuseIpdbTransform
 from .hibp import HibpTransform
+from .urlscan import UrlscanTransform
 
 __all__ = [
     "ResolveIPTransform",
@@ -30,4 +31,5 @@ __all__ = [
     "DnsRecordsTransform",
     "AbuseIpdbTransform",
     "HibpTransform",
+    "UrlscanTransform",
 ]

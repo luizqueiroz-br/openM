@@ -3,7 +3,7 @@ from unittest.mock import patch
 
 import dns.resolver
 import openm.transforms  # noqa: F401 — dispara o @Transform.register em todos os transforms
-from openm.core.entity import Domain, Email, IPAddress
+from openm.core.entity import Domain, Email, IPAddress, URL
 from openm.transforms.fraud_email import CheckFraudEmailTransform
 from openm.transforms.resolve_ip import ResolveIPTransform
 from openm.transforms.shodan import ShodanTransform
@@ -4522,3 +4522,524 @@ def test_hibp_service_investigate_email_normalizes(monkeypatch):
     assert result["breach_count"] == 1
     assert result["breaches"][0]["name"] == "Adobe"
     assert result["breaches"][0]["is_verified"] is True
+
+
+# ========================================================================
+# URLScan Transform
+# ========================================================================
+
+
+def test_urlscan_transform_domain_full_result():
+    """Domain com scan completo -> Domain enriquecido + Domains/IPs contactados."""
+    from openm.transforms.urlscan import UrlscanTransform
+
+    domain = Domain(value="example.com", properties={})
+    transform = UrlscanTransform()
+
+    intel = {
+        "available": True,
+        "uuid": "abc-123",
+        "result_url": "https://urlscan.io/result/abc-123/",
+        "screenshot_url": "https://urlscan.io/screenshots/abc-123.png",
+        "page_domain": "example.com",
+        "page_url": "https://example.com/",
+        "page_status": "200",
+        "page_title": "Example Domain",
+        "malicious": False,
+        "score": 0,
+        "technologies": ["nginx", "Bootstrap"],
+        "ips": ["93.184.216.34", "1.2.3.4"],
+        "domains": ["cdn.example.com", "tracker.evil.com"],
+        "urls": ["https://example.com/login"],
+        "countries": ["US", "DE"],
+        "stats": {"requestsCount": 12, "cookieCount": 2},
+        "checked_at": "2026-06-27T20:00:00+00:00",
+    }
+
+    with patch(
+        "openm.transforms.urlscan.UrlscanService.submit_scan",
+        return_value=intel,
+    ):
+        result = transform.run(domain)
+
+    assert len(result.entities) == 5  # Domain + 2 contacted domains + 2 IPs
+    enriched = [e for e in result.entities if isinstance(e, Domain) and e.id == domain.id][0]
+    assert enriched.properties["urlscan_available"] is True
+    assert enriched.properties["urlscan_malicious"] is False
+    assert enriched.properties["urlscan_score"] == 0
+    assert "nginx" in enriched.properties["urlscan_technologies"]
+    assert enriched.properties["urlscan_screenshot_url"].endswith(".png")
+
+    contacted_domains = [
+        e for e in result.entities
+        if isinstance(e, Domain) and e.id != domain.id
+    ]
+    assert {d.value for d in contacted_domains} == {"cdn.example.com", "tracker.evil.com"}
+
+    contacted_ips = [e for e in result.entities if isinstance(e, IPAddress)]
+    assert {ip.value for ip in contacted_ips} == {"93.184.216.34", "1.2.3.4"}
+
+    contacts_rels = [r for r in result.relationships if r["type"] == "CONTACTS"]
+    connects_rels = [r for r in result.relationships if r["type"] == "CONNECTS_TO"]
+    assert len(contacts_rels) == 2
+    assert len(connects_rels) == 2
+    assert all(r["from_id"] == domain.id for r in contacts_rels)
+    assert all(r["from_id"] == domain.id for r in connects_rels)
+
+
+def test_urlscan_transform_skips_self_and_page_domain():
+    """Domain de input e page_domain nao viram entidades CONTACTS."""
+    from openm.transforms.urlscan import UrlscanTransform
+
+    domain = Domain(value="example.com", properties={})
+    transform = UrlscanTransform()
+
+    intel = {
+        "available": True,
+        "uuid": "abc",
+        "page_domain": "example.com",
+        "page_url": "https://example.com/",
+        "ips": [],
+        "domains": ["example.com", "other.com"],
+    }
+
+    with patch(
+        "openm.transforms.urlscan.UrlscanService.submit_scan",
+        return_value=intel,
+    ):
+        result = transform.run(domain)
+
+    contacted = [
+        e for e in result.entities
+        if isinstance(e, Domain) and e.id != domain.id
+    ]
+    # example.com pulado (input), so other.com aparece.
+    assert {d.value for d in contacted} == {"other.com"}
+
+
+def test_urlscan_transform_unavailable_marks_input():
+    """Scan indisponivel (chave invalida, rate-limit, etc.) -> enriquecido com available=False."""
+    from openm.transforms.urlscan import UrlscanTransform
+
+    domain = Domain(value="example.com", properties={})
+    transform = UrlscanTransform()
+
+    intel = {
+        "available": False,
+        "key_valid": False,
+        "checked_at": "2026-06-27T20:00:00+00:00",
+    }
+
+    with patch(
+        "openm.transforms.urlscan.UrlscanService.submit_scan",
+        return_value=intel,
+    ):
+        result = transform.run(domain)
+
+    assert len(result.entities) == 1
+    assert result.entities[0].id == domain.id
+    assert result.entities[0].properties["urlscan_available"] is False
+    assert result.entities[0].properties["urlscan_key_valid"] is False
+    assert result.relationships == []
+
+
+def test_urlscan_transform_rate_limited_marks():
+    """429 -> urlscan_rate_limited=True."""
+    from openm.transforms.urlscan import UrlscanTransform
+
+    domain = Domain(value="example.com", properties={})
+    transform = UrlscanTransform()
+
+    intel = {
+        "available": False,
+        "rate_limited": True,
+        "checked_at": "2026-06-27T20:00:00+00:00",
+    }
+
+    with patch(
+        "openm.transforms.urlscan.UrlscanService.submit_scan",
+        return_value=intel,
+    ):
+        result = transform.run(domain)
+
+    enriched = result.entities[0]
+    assert enriched.properties["urlscan_rate_limited"] is True
+
+
+def test_urlscan_transform_ip_input():
+    """IPAddress tambem e aceito e funciona como input."""
+    from openm.transforms.urlscan import UrlscanTransform
+
+    ip = IPAddress(value="8.8.8.8", properties={})
+    transform = UrlscanTransform()
+
+    intel = {
+        "available": True,
+        "uuid": "x",
+        "page_domain": "dns.google",
+        "page_url": "https://dns.google/",
+        "ips": [],
+        "domains": ["dns.google"],
+    }
+
+    with patch(
+        "openm.transforms.urlscan.UrlscanService.submit_scan",
+        return_value=intel,
+    ):
+        result = transform.run(ip)
+
+    enriched = [e for e in result.entities if isinstance(e, IPAddress)][0]
+    assert enriched.id == ip.id
+    assert enriched.properties["urlscan_available"] is True
+
+
+def test_urlscan_transform_url_input():
+    """URL entity passa o value completo para o service."""
+    from openm.transforms.urlscan import UrlscanTransform
+
+    url = URL(value="https://example.com/login", properties={})
+    transform = UrlscanTransform()
+
+    with patch(
+        "openm.transforms.urlscan.UrlscanService.submit_scan",
+        return_value={"available": False, "checked_at": "x"},
+    ) as mock_submit:
+        transform.run(url)
+
+    # Value da URL foi passado inteiro (com scheme).
+    mock_submit.assert_called_once_with("https://example.com/login")
+
+
+def test_urlscan_transform_no_key_returns_empty():
+    """Service retorna None -> result vazio."""
+    from openm.transforms.urlscan import UrlscanTransform
+
+    domain = Domain(value="example.com", properties={})
+    transform = UrlscanTransform()
+
+    with patch(
+        "openm.transforms.urlscan.UrlscanService.submit_scan",
+        return_value=None,
+    ):
+        result = transform.run(domain)
+
+    assert result.entities == []
+    assert result.relationships == []
+
+
+def test_urlscan_transform_skips_unsupported_type():
+    """Email -> result vazio sem chamar service."""
+    from openm.transforms.urlscan import UrlscanTransform
+
+    email = Email(value="a@b.com")
+    transform = UrlscanTransform()
+
+    with patch("openm.transforms.urlscan.UrlscanService.submit_scan") as mock:
+        result = transform.run(email)
+
+    mock.assert_not_called()
+    assert result.entities == []
+    assert result.relationships == []
+
+
+def test_urlscan_transform_registered():
+    """UrlscanTransform aparece no registry para Domain, IPAddress e URL."""
+    from openm.core.transform import TransformRegistry
+    from openm.transforms.urlscan import UrlscanTransform
+
+    assert TransformRegistry.get("urlscan_lookup") is UrlscanTransform
+
+    for supported in ("Domain", "IPAddress", "URL"):
+        names = [t["name"] for t in TransformRegistry.list_for_type(supported)]
+        assert "urlscan_lookup" in names
+
+    for other_type in ("Email", "Person", "Device", "BankAccount", "FileHash", "DnsRecord"):
+        assert "urlscan_lookup" not in [
+            t["name"] for t in TransformRegistry.list_for_type(other_type)
+        ]
+
+
+# ========================================================================
+# URLScan Service
+# ========================================================================
+
+
+def test_urlscan_service_submit_no_key_returns_none(monkeypatch):
+    """Sem chave -> None."""
+    from openm.services.urlscan_service import UrlscanService
+
+    monkeypatch.setattr(UrlscanService, "get_key", staticmethod(lambda: None))
+
+    result = UrlscanService.submit_scan("example.com", poll=False)
+    assert result is None
+
+
+def test_urlscan_service_submit_poll_false(monkeypatch):
+    """poll=False retorna imediatamente com available=False e uuid."""
+    from openm.services.urlscan_service import UrlscanService
+
+    monkeypatch.setattr(UrlscanService, "get_key", staticmethod(lambda: "key-123"))
+
+    class FakeResponse:
+        status_code = 200
+
+        def json(self):
+            return {
+                "uuid": "abc-123",
+                "result": "https://urlscan.io/result/abc-123/",
+            }
+
+    def fake_post(url, headers, json, timeout):
+        return FakeResponse()
+
+    monkeypatch.setattr(
+        "openm.services.urlscan_service.requests.post",
+        fake_post,
+    )
+
+    result = UrlscanService.submit_scan("example.com", poll=False)
+    assert result["available"] is False
+    assert result["uuid"] == "abc-123"
+    assert result["result_url"] == "https://urlscan.io/result/abc-123/"
+
+
+def test_urlscan_service_submit_adds_https_scheme(monkeypatch):
+    """Targets sem scheme recebem https://."""
+    from openm.services.urlscan_service import UrlscanService
+
+    monkeypatch.setattr(UrlscanService, "get_key", staticmethod(lambda: "key"))
+
+    captured = {}
+
+    class FakeResponse:
+        status_code = 200
+
+        def json(self):
+            return {"uuid": "x", "result": "y"}
+
+    def fake_post(url, headers, json, timeout):
+        captured["target"] = json.get("url")
+        return FakeResponse()
+
+    monkeypatch.setattr(
+        "openm.services.urlscan_service.requests.post",
+        fake_post,
+    )
+
+    UrlscanService.submit_scan("example.com", poll=False)
+    assert captured["target"] == "https://example.com"
+
+
+def test_urlscan_service_submit_poll_success(monkeypatch):
+    """Poll: primeira tentativa 404 (processando), segunda 200 -> ok."""
+    from openm.services.urlscan_service import UrlscanService
+
+    monkeypatch.setattr(UrlscanService, "get_key", staticmethod(lambda: "key"))
+
+    class FakeSubmit:
+        status_code = 200
+
+        def json(self):
+            return {"uuid": "abc", "result": "https://urlscan.io/result/abc/"}
+
+    submit_calls = {"n": 0}
+    result_calls = {"n": 0}
+
+    def fake_post(url, headers, json, timeout):
+        submit_calls["n"] += 1
+        return FakeSubmit()
+
+    class FakeResult:
+        def __init__(self, status_code, body=None):
+            self.status_code = status_code
+            self._body = body or {}
+
+        def json(self):
+            return self._body
+
+    def fake_get(url, headers, timeout):
+        result_calls["n"] += 1
+        if result_calls["n"] == 1:
+            return FakeResult(404)
+        return FakeResult(200, {
+            "uuid": "abc",
+            "result": "https://urlscan.io/result/abc/",
+            "page": {
+                "domain": "example.com",
+                "url": "https://example.com/",
+                "status": "200",
+                "title": "Example",
+            },
+            "task": {"url": "https://example.com/"},
+            "stats": [],
+            "verdicts": {"overall": {"malicious": False, "score": 0}},
+            "lists": {"ips": [], "domains": [], "urls": [], "countries": []},
+            "meta": {"processors": {"wappa": {"data": ["nginx"]}}},
+        })
+
+    monkeypatch.setattr(
+        "openm.services.urlscan_service.requests.post",
+        fake_post,
+    )
+    monkeypatch.setattr(
+        "openm.services.urlscan_service.requests.get",
+        fake_get,
+    )
+
+    result = UrlscanService.submit_scan(
+        "example.com",
+        poll_interval=0.0,
+        poll_max_wait=10.0,
+    )
+
+    assert result["available"] is True
+    assert result["uuid"] == "abc"
+    assert result["page_domain"] == "example.com"
+    assert result["page_status"] == "200"
+    assert "nginx" in result["technologies"]
+    assert submit_calls["n"] == 1
+    assert result_calls["n"] == 2
+
+
+def test_urlscan_service_submit_rate_limited(monkeypatch):
+    """429 no submit -> rate_limited."""
+    from openm.services.urlscan_service import UrlscanService
+
+    monkeypatch.setattr(UrlscanService, "get_key", staticmethod(lambda: "key"))
+
+    class FakeResponse:
+        status_code = 429
+
+    def fake_post(url, headers, json, timeout):
+        return FakeResponse()
+
+    monkeypatch.setattr(
+        "openm.services.urlscan_service.requests.post",
+        fake_post,
+    )
+
+    result = UrlscanService.submit_scan("example.com", poll=False)
+    assert result["rate_limited"] is True
+    assert result["available"] is False
+
+
+def test_urlscan_service_submit_unauthorized(monkeypatch):
+    """401 no submit -> key_valid=False."""
+    from openm.services.urlscan_service import UrlscanService
+
+    monkeypatch.setattr(UrlscanService, "get_key", staticmethod(lambda: "key"))
+
+    class FakeResponse:
+        status_code = 401
+
+    def fake_post(url, headers, json, timeout):
+        return FakeResponse()
+
+    monkeypatch.setattr(
+        "openm.services.urlscan_service.requests.post",
+        fake_post,
+    )
+
+    result = UrlscanService.submit_scan("example.com", poll=False)
+    assert result["key_valid"] is False
+    assert result["available"] is False
+
+
+def test_urlscan_service_normalize_lists_dict_form(monkeypatch):
+    """Listas em formato dict (ex: {'ip': '1.2.3.4'}) sao normalizadas."""
+    from openm.services.urlscan_service import UrlscanService
+
+    monkeypatch.setattr(UrlscanService, "get_key", staticmethod(lambda: "key"))
+
+    class FakeSubmit:
+        status_code = 200
+
+        def json(self):
+            return {"uuid": "abc", "result": "https://urlscan.io/result/abc/"}
+
+    class FakeResult:
+        def __init__(self, status_code, body=None):
+            self.status_code = status_code
+            self._body = body or {}
+
+        def json(self):
+            return self._body
+
+    def fake_post(url, headers, json, timeout):
+        return FakeSubmit()
+
+    def fake_get(url, headers, timeout):
+        return FakeResult(200, {
+            "uuid": "abc",
+            "page": {"domain": "example.com", "url": "https://example.com/", "status": "200"},
+            "task": {"url": "https://example.com/"},
+            "stats": [],
+            "verdicts": {"overall": {"malicious": False, "score": 0}},
+            "lists": {
+                "ips": [{"ip": "1.2.3.4"}, {"ip": "5.6.7.8"}],
+                "domains": [{"domain": "cdn.example.com"}],
+                "urls": [{"url": "https://example.com/a"}, "https://example.com/b"],
+                "countries": [{"country": "US"}],
+            },
+            "meta": {"processors": {"wappa": {"data": []}}},
+        })
+
+    monkeypatch.setattr(
+        "openm.services.urlscan_service.requests.post",
+        fake_post,
+    )
+    monkeypatch.setattr(
+        "openm.services.urlscan_service.requests.get",
+        fake_get,
+    )
+
+    result = UrlscanService.submit_scan(
+        "example.com",
+        poll_interval=0.0,
+        poll_max_wait=10.0,
+    )
+
+    assert result["ips"] == ["1.2.3.4", "5.6.7.8"]
+    assert result["domains"] == ["cdn.example.com"]
+    assert result["urls"] == ["https://example.com/a", "https://example.com/b"]
+    assert result["countries"] == ["US"]
+
+
+def test_urlscan_service_pending_when_timeout(monkeypatch):
+    """Scan nao fica pronto antes do timeout -> pending=True."""
+    from openm.services.urlscan_service import UrlscanService
+
+    monkeypatch.setattr(UrlscanService, "get_key", staticmethod(lambda: "key"))
+
+    class FakeSubmit:
+        status_code = 200
+
+        def json(self):
+            return {"uuid": "abc", "result": "x"}
+
+    def fake_post(url, headers, json, timeout):
+        return FakeSubmit()
+
+    class FakeResult:
+        status_code = 404
+
+    def fake_get(url, headers, timeout):
+        return FakeResult()
+
+    monkeypatch.setattr(
+        "openm.services.urlscan_service.requests.post",
+        fake_post,
+    )
+    monkeypatch.setattr(
+        "openm.services.urlscan_service.requests.get",
+        fake_get,
+    )
+
+    result = UrlscanService.submit_scan(
+        "example.com",
+        poll_interval=0.0,
+        poll_max_wait=0.05,
+    )
+    assert result["available"] is False
+    assert result["pending"] is True
+    assert result["uuid"] == "abc"
