@@ -33,6 +33,7 @@ from typing import Any, Dict, List, Optional
 
 import requests
 
+from openm.core.transform import increment_api_call_counter
 from openm.extensions import db
 from openm.models.api_key import ApiKey
 from openm.services.sqlite_cache import SqliteCache
@@ -158,6 +159,7 @@ class HunterService:
 
             # 200: sucesso
             if resp.status_code == 200:
+                increment_api_call_counter()
                 try:
                     return resp.json()
                 except ValueError:

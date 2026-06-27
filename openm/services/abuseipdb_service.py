@@ -4,6 +4,7 @@ from typing import Any, Dict, Optional
 
 import requests
 
+from openm.core.transform import increment_api_call_counter
 from openm.extensions import db
 from openm.models.api_key import ApiKey
 
@@ -71,17 +72,21 @@ class AbuseIPDBService:
             return None
 
         if resp.status_code == 404:
+            increment_api_call_counter()
             logger.warning("AbuseIPDB nao encontrou dados para %s", ip)
             return None
         if resp.status_code in (401, 403):
+            increment_api_call_counter()
             logger.warning(
                 "AbuseIPDB chave invalida para %s (status %d)", ip, resp.status_code
             )
             return None
         if resp.status_code == 429:
+            increment_api_call_counter()
             logger.warning("AbuseIPDB rate-limit para %s", ip)
             return None
         if resp.status_code != 200:
+            increment_api_call_counter()
             logger.warning(
                 "AbuseIPDB resposta nao tratada para %s: status=%d",
                 ip, resp.status_code,
@@ -90,6 +95,7 @@ class AbuseIPDBService:
 
         try:
             data = resp.json()
+            increment_api_call_counter()
         except ValueError:
             logger.warning("AbuseIPDB resposta nao-JSON para %s", ip)
             return None
