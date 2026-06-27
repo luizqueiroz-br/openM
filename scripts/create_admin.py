@@ -138,12 +138,10 @@ def _try_via_openm(email: str, password: str, force: bool) -> tuple[bool, str]:
 
         inspector = inspect(db.engine)
         if not inspector.has_table("users"):
-            print(
-                "WARNING: 'users' table missing. "
-                "Run 'flask db upgrade' before this script.",
-                file=sys.stderr,
+            return False, (
+                "tabela 'users' ausente — execute 'flask db upgrade' "
+                "antes deste script"
             )
-            sys.exit(1)
 
         existing = User.query.filter_by(email=email).first()
 

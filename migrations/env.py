@@ -51,22 +51,6 @@ def get_metadata():
     return target_db.metadata
 
 
-# === Custom JSONB render + server_default detection (issue #36) ===
-# Belt-and-braces: garante que colunas ``db.JSON().with_variant(JSONB(),
-# "postgresql")`` sejam emitidas como ``JSONB()`` puro no Postgres e
-# detecta alterações em ``server_default`` (ex.: ``'true'`` → ``sa.text
-# ("true")``).
-from sqlalchemy.dialects.postgresql import JSONB as _JSONB
-
-
-def render_item(type_, obj, autogen_context):
-    """Hook do Alembic para customizar a renderização de tipos."""
-    if type_ == "type" and isinstance(obj, _JSONB):
-        autogen_context.imports.add("from sqlalchemy.dialects.postgresql import JSONB")
-        return "sa.dialects.postgresql.JSONB()"
-    return False
-
-
 def run_migrations_offline():
     """Run migrations in 'offline' mode.
 
@@ -116,7 +100,6 @@ def run_migrations_online():
         context.configure(
             connection=connection,
             target_metadata=get_metadata(),
-            render_item=render_item,
             compare_server_default=True,
             **conf_args
         )

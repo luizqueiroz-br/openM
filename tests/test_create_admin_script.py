@@ -208,6 +208,25 @@ def test_via_openm_missing_package_returns_helpful_error():
             assert "pacote openm não disponível" in msg
 
 
+def test_via_openm_missing_users_table(shared_sqlite_env):
+    """Quando a tabela ``users`` não existe (schema não foi migrado),
+    ``_try_via_openm`` deve retornar ``(False, ...)`` em vez de abortar
+    o processo via ``sys.exit`` — quem decide o exit code é o ``main()``.
+
+    Usa o DB vazio (sem ``db.create_all()``) para forçar a falha do
+    inspect().has_table("users").
+    """
+    from scripts import create_admin
+
+    ok, msg = create_admin._try_via_openm(
+        "ghost@example.com", "senha-forte-123", force=False
+    )
+
+    assert ok is False
+    assert "users" in msg.lower()
+    assert "flask db upgrade" in msg.lower()
+
+
 # ===================== Estratégia B: Postgres direto =====================
 
 @pytest.fixture
