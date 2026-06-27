@@ -11,6 +11,7 @@ from .crtsh import CrtShTransform
 from .email_to_domain import EmailToDomainTransform
 from .ssl_cert import SslCertTransform
 from .dns_records import DnsRecordsTransform
+from .abuseipdb import AbuseIpdbTransform
 
 __all__ = [
     "ResolveIPTransform",
@@ -26,4 +27,5 @@ __all__ = [
     "EmailToDomainTransform",
     "SslCertTransform",
     "DnsRecordsTransform",
+    "AbuseIpdbTransform",
 ]

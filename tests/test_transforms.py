@@ -3822,3 +3822,319 @@ def test_dns_records_service_reverse_dns_ptr_no_ptr_returns_none(monkeypatch):
 
     result = dns_records_service.reverse_dns_ptr("192.0.2.1")
     assert result is None
+
+
+# ========================================================================
+# AbuseIPDB Transform
+# ========================================================================
+
+
+def test_abuseipdb_transform_ip_with_reports():
+    """IPAddress com reports -> IP enriquecido + Device REPORTED_AS_ABUSIVE."""
+    from openm.transforms.abuseipdb import AbuseIpdbTransform
+
+    ip = IPAddress(value="192.0.2.100", properties={})
+    transform = AbuseIpdbTransform()
+
+    intel = {
+        "value": "192.0.2.100",
+        "type": "IPAddress",
+        "source": "abuseipdb",
+        "available": True,
+        "abuse_confidence_score": 85,
+        "country_code": "US",
+        "usage_type": "Data Center/Web Hosting/Transit",
+        "isp": "Example ISP",
+        "domain": "example.com",
+        "total_reports": 42,
+        "num_distinct_users": 12,
+        "last_reported_at": "2026-06-26T12:00:00+00:00",
+        "is_public": True,
+        "is_whitelisted": False,
+        "checked_at": "2026-06-27T16:00:00+00:00",
+    }
+
+    with patch(
+        "openm.transforms.abuseipdb.AbuseIPDBService.investigate_ip",
+        return_value=intel,
+    ):
+        result = transform.run(ip)
+
+    assert len(result.entities) == 2
+    enriched = [e for e in result.entities if isinstance(e, IPAddress)][0]
+    assert enriched.id == ip.id
+    assert enriched.properties["abuseipdb_abuse_confidence_score"] == 85
+    assert enriched.properties["abuseipdb_total_reports"] == 42
+    assert enriched.properties["abuseipdb_country_code"] == "US"
+    assert enriched.properties["abuseipdb_available"] is True
+
+    device = [e for e in result.entities if e.type == "Device"][0]
+    assert device.properties["role"] == "threat_intel_source"
+    assert device.properties["abuse_confidence_score"] == 85
+
+    assert len(result.relationships) == 1
+    assert result.relationships[0]["type"] == "REPORTED_AS_ABUSIVE"
+    assert result.relationships[0]["from_id"] == enriched.id
+
+
+def test_abuseipdb_transform_ip_low_score_no_device():
+    """Score baixo (< 50) -> apenas IP enriquecido, sem Device."""
+    from openm.transforms.abuseipdb import AbuseIpdbTransform
+
+    ip = IPAddress(value="192.0.2.101", properties={})
+    transform = AbuseIpdbTransform()
+
+    intel = {
+        "value": "192.0.2.101",
+        "type": "IPAddress",
+        "source": "abuseipdb",
+        "available": True,
+        "abuse_confidence_score": 10,
+        "country_code": "BR",
+        "usage_type": "Fixed Line ISP",
+        "isp": "Local ISP",
+        "domain": None,
+        "total_reports": 1,
+        "num_distinct_users": 1,
+        "last_reported_at": None,
+        "is_public": True,
+        "is_whitelisted": False,
+        "checked_at": "2026-06-27T16:00:00+00:00",
+    }
+
+    with patch(
+        "openm.transforms.abuseipdb.AbuseIPDBService.investigate_ip",
+        return_value=intel,
+    ):
+        result = transform.run(ip)
+
+    assert len(result.entities) == 1
+    assert result.entities[0].type == "IPAddress"
+    assert result.entities[0].properties["abuseipdb_abuse_confidence_score"] == 10
+    assert result.relationships == []
+
+
+def test_abuseipdb_transform_unavailable_still_enriches():
+    """API falha -> IP enriquecido com available=False, sem Device."""
+    from openm.transforms.abuseipdb import AbuseIpdbTransform
+
+    ip = IPAddress(value="192.0.2.102", properties={})
+    transform = AbuseIpdbTransform()
+
+    intel = {
+        "value": "192.0.2.102",
+        "type": "IPAddress",
+        "source": "abuseipdb",
+        "available": False,
+        "abuse_confidence_score": None,
+        "country_code": None,
+        "usage_type": None,
+        "isp": None,
+        "domain": None,
+        "total_reports": None,
+        "num_distinct_users": None,
+        "last_reported_at": None,
+        "is_public": None,
+        "is_whitelisted": None,
+        "checked_at": "2026-06-27T16:00:00+00:00",
+    }
+
+    with patch(
+        "openm.transforms.abuseipdb.AbuseIPDBService.investigate_ip",
+        return_value=intel,
+    ):
+        result = transform.run(ip)
+
+    assert len(result.entities) == 1
+    assert result.entities[0].properties["abuseipdb_available"] is False
+    assert result.entities[0].properties["abuseipdb_abuse_confidence_score"] is None
+    assert result.relationships == []
+
+
+def test_abuseipdb_transform_domain_resolves_ip():
+    """Domain -> resolve IP, enriquece IP, cria RESOLVES_TO."""
+    from openm.transforms.abuseipdb import AbuseIpdbTransform
+
+    domain = Domain(value="example.com", properties={})
+    transform = AbuseIpdbTransform()
+
+    intel = {
+        "value": "93.184.216.34",
+        "type": "IPAddress",
+        "source": "abuseipdb",
+        "available": True,
+        "abuse_confidence_score": 0,
+        "country_code": "US",
+        "usage_type": "Content Delivery Network",
+        "isp": "Example CDN",
+        "domain": "example.com",
+        "total_reports": 0,
+        "num_distinct_users": 0,
+        "last_reported_at": None,
+        "is_public": True,
+        "is_whitelisted": False,
+        "checked_at": "2026-06-27T16:00:00+00:00",
+    }
+
+    with patch(
+        "openm.transforms.abuseipdb.AbuseIPDBService.investigate_ip",
+        return_value=intel,
+    ), patch(
+        "openm.transforms.abuseipdb.AbuseIpdbTransform._resolve_domain",
+        return_value="93.184.216.34",
+    ):
+        result = transform.run(domain)
+
+    ip_entity = [e for e in result.entities if isinstance(e, IPAddress)][0]
+    assert ip_entity.value == "93.184.216.34"
+    assert ip_entity.properties["resolved_from"] == "example.com"
+
+    assert len(result.relationships) == 1
+    assert result.relationships[0]["type"] == "RESOLVES_TO"
+    assert result.relationships[0]["from_id"] == domain.id
+    assert result.relationships[0]["to_id"] == ip_entity.id
+
+
+def test_abuseipdb_transform_domain_unresolvable_returns_empty():
+    """Domain sem resolucao -> result vazio."""
+    from openm.transforms.abuseipdb import AbuseIpdbTransform
+
+    domain = Domain(value="unresolvable.example", properties={})
+    transform = AbuseIpdbTransform()
+
+    with patch(
+        "openm.transforms.abuseipdb.AbuseIpdbTransform._resolve_domain",
+        return_value=None,
+    ):
+        result = transform.run(domain)
+
+    assert result.entities == []
+    assert result.relationships == []
+
+
+def test_abuseipdb_transform_skips_unsupported_type():
+    """Email -> result vazio sem chamar investigate_ip."""
+    from openm.transforms.abuseipdb import AbuseIpdbTransform
+
+    email = Email(value="a@b.com")
+    transform = AbuseIpdbTransform()
+
+    with patch("openm.transforms.abuseipdb.AbuseIPDBService.investigate_ip") as mock:
+        result = transform.run(email)
+
+    mock.assert_not_called()
+    assert result.entities == []
+    assert result.relationships == []
+
+
+def test_abuseipdb_transform_registered():
+    """AbuseIpdbTransform aparece no registry para IPAddress e Domain."""
+    from openm.core.transform import TransformRegistry
+    from openm.transforms.abuseipdb import AbuseIpdbTransform
+
+    assert TransformRegistry.get("abuseipdb_lookup") is AbuseIpdbTransform
+
+    for supported in ("IPAddress", "Domain"):
+        names = [t["name"] for t in TransformRegistry.list_for_type(supported)]
+        assert "abuseipdb_lookup" in names
+
+    for other_type in ("Email", "Person", "Device", "BankAccount", "URL", "FileHash", "DnsRecord"):
+        assert "abuseipdb_lookup" not in [
+            t["name"] for t in TransformRegistry.list_for_type(other_type)
+        ]
+
+
+# ========================================================================
+# AbuseIPDB Service
+# ========================================================================
+
+
+def test_abuseipdb_service_investigate_ip_success(monkeypatch):
+    """investigate_ip normaliza resposta da API."""
+    from openm.services.abuseipdb_service import AbuseIPDBService
+
+    fake_attrs = {
+        "abuseConfidenceScore": 75,
+        "countryCode": "RU",
+        "usageType": "Data Center/Web Hosting/Transit",
+        "isp": "Bad ISP",
+        "domain": "bad.example.com",
+        "totalReports": 99,
+        "numDistinctUsers": 33,
+        "lastReportedAt": "2026-06-25T10:00:00+00:00",
+        "isPublic": True,
+        "isWhitelisted": False,
+    }
+
+    class FakeResponse:
+        status_code = 200
+
+        def json(self):
+            return {"data": {"attributes": fake_attrs}}
+
+    def fake_get(url, headers, params, timeout):
+        return FakeResponse()
+
+    monkeypatch.setattr("openm.services.abuseipdb_service.requests.get", fake_get)
+    monkeypatch.setattr(
+        AbuseIPDBService, "get_key", staticmethod(lambda: "fake-key")
+    )
+
+    result = AbuseIPDBService.investigate_ip("192.0.2.200")
+    assert result["available"] is True
+    assert result["abuse_confidence_score"] == 75
+    assert result["country_code"] == "RU"
+    assert result["total_reports"] == 99
+    assert result["source"] == "abuseipdb"
+
+
+def test_abuseipdb_service_investigate_ip_no_key_returns_unavailable(monkeypatch):
+    """Sem chave -> available=False."""
+    from openm.services.abuseipdb_service import AbuseIPDBService
+
+    monkeypatch.setattr(AbuseIPDBService, "get_key", staticmethod(lambda: None))
+
+    result = AbuseIPDBService.investigate_ip("192.0.2.201")
+    assert result["available"] is False
+    assert result["abuse_confidence_score"] is None
+
+
+def test_abuseipdb_service_investigate_ip_rate_limit_returns_unavailable(monkeypatch):
+    """429 -> available=False."""
+    from openm.services.abuseipdb_service import AbuseIPDBService
+
+    class FakeResponse:
+        status_code = 429
+
+    def fake_get(url, headers, params, timeout):
+        return FakeResponse()
+
+    monkeypatch.setattr("openm.services.abuseipdb_service.requests.get", fake_get)
+    monkeypatch.setattr(
+        AbuseIPDBService, "get_key", staticmethod(lambda: "fake-key")
+    )
+
+    result = AbuseIPDBService.investigate_ip("192.0.2.202")
+    assert result["available"] is False
+
+
+def test_abuseipdb_service_query_ip_invalid_json_returns_none(monkeypatch):
+    """Resposta 200 com JSON invalido -> None."""
+    from openm.services.abuseipdb_service import AbuseIPDBService
+
+    class FakeResponse:
+        status_code = 200
+
+        def json(self):
+            raise ValueError("not json")
+
+    def fake_get(url, headers, params, timeout):
+        return FakeResponse()
+
+    monkeypatch.setattr("openm.services.abuseipdb_service.requests.get", fake_get)
+    monkeypatch.setattr(
+        AbuseIPDBService, "get_key", staticmethod(lambda: "fake-key")
+    )
+
+    result = AbuseIPDBService.query_ip("192.0.2.203")
+    assert result is None
