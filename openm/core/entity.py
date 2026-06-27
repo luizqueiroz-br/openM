@@ -91,8 +91,34 @@ class URL(Entity):
     entity_type = "URL"
 
 
+class FileHash(Entity):
+    """Hash de arquivo (MD5, SHA1 ou SHA256).
+
+    O algoritmo é inferido a partir do comprimento do value (hex string):
+      - 32 chars → md5
+      - 40 chars → sha1
+      - 64 chars → sha256
+      - outro    → unknown
+
+    Também é gravado em ``properties["algorithm"]`` para queries Cypher
+    diretas sem precisar recomputar.
+    """
+    entity_type = "FileHash"
+
+    _LENGTH_TO_ALGO = {
+        32: "md5",
+        40: "sha1",
+        64: "sha256",
+    }
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        algo = self._LENGTH_TO_ALGO.get(len(self.value.strip()), "unknown")
+        self.properties.setdefault("algorithm", algo)
+
+
 # Mapeamento de tipo-string para classe, usado pela API e pelos transforms.
 ENTITY_CLASSES = {
     cls.entity_type: cls
-    for cls in [IPAddress, Email, Domain, Person, BankAccount, Device, URL]
+    for cls in [IPAddress, Email, Domain, Person, BankAccount, Device, URL, FileHash]
 }
