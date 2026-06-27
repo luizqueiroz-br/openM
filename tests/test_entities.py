@@ -7,6 +7,7 @@ from openm.core.entity import (
     Entity,
     IPAddress,
     Person,
+    URL,
 )
 
 
@@ -36,6 +37,7 @@ def test_all_entity_subclasses_exist():
         "Person",
         "BankAccount",
         "Device",
+        "URL",
     }
 
 
@@ -45,3 +47,32 @@ def test_subclass_types():
     assert BankAccount(value="123").type == "BankAccount"
     assert Person(value="John").type == "Person"
     assert Device(value="phone-1").type == "Device"
+
+
+def test_url_entity():
+    """URL entity: type/value/serialization/cytoscape/registration."""
+    url = URL(value="https://example.com/login", properties={"path": "/login"})
+
+    # type e value
+    assert url.type == "URL"
+    assert url.value == "https://example.com/login"
+
+    # serialização
+    data = url.to_dict()
+    assert data["type"] == "URL"
+    assert data["value"] == "https://example.com/login"
+    assert data["properties"]["path"] == "/login"
+    assert "id" in data
+
+    # cytoscape
+    cyto = url.to_cytoscape()
+    assert cyto["data"]["id"] == url.id
+    assert cyto["data"]["label"] == "https://example.com/login"
+    assert cyto["data"]["type"] == "URL"
+    assert cyto["data"]["path"] == "/login"
+
+    # registro em ENTITY_CLASSES
+    assert ENTITY_CLASSES["URL"] is URL
+    instance = ENTITY_CLASSES["URL"](value="https://test.com")
+    assert isinstance(instance, URL)
+    assert isinstance(instance, Entity)
