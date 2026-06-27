@@ -24,6 +24,7 @@ class GeoIPTransform(Transform):
         "Consulta MaxMind GeoLite2 (offline) para obter país, cidade, "
         "coordenadas e organização de um endereço IP."
     )
+    cache_ttl_seconds = 604800  # 7 dias — geolocalização é muito estável
 
     def _run(self, entity: Entity) -> TransformResult:
         geo_data = GeoIPService.investigate_ip(entity.value)

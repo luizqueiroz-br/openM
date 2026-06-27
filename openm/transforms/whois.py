@@ -45,6 +45,7 @@ class WhoisTransform(Transform):
         "Consulta WHOIS (porta 43) para obter registrar, datas de criação/expiração, "
         "nameservers e contatos (registrant, admin, tech) de um domínio."
     )
+    cache_ttl_seconds = 86400  # 24h — dados raramente mudam
 
     def _run(self, entity: Entity) -> TransformResult:
         whois_data = WhoisService.investigate_domain(entity.value)

@@ -19,6 +19,7 @@ class ResolveIPTransform(Transform):
     display_name = "Resolve Domain to IPs"
     input_types = ["Domain"]
     description = "Resolve um domínio para seus endereços IPv4 via DNS."
+    cache_ttl_seconds = 3600  # 1h — DNS A records podem mudar
 
     def _run(self, entity: Entity) -> TransformResult:
         ips = resolve_domain(entity.value)

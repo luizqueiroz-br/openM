@@ -32,6 +32,7 @@ class CrtShTransform(Transform):
         "subdomínios de um domínio. Útil para mapear a superfície de ataque "
         "e descobrir hosts esquecidos ou não documentados."
     )
+    cache_ttl_seconds = 86400  # 24h — CT logs são append-only
 
     def _run(self, entity: Entity) -> TransformResult:
         entries = query_crtsh(entity.value)

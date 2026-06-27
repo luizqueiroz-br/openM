@@ -39,6 +39,7 @@ class HunterDomainTransform(Transform):
     # do primeiro transform com service_name="hunter" aparece no
     # dropdown — por isso usamos um label unificado aqui.
     service_display = "Hunter.io"
+    cache_ttl_seconds = 21600  # 6h — API paga, queremos freshness vs quota
 
     def _run(self, entity: Entity) -> TransformResult:
         data = HunterService.investigate_domain(entity.value)
