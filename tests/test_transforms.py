@@ -4072,10 +4072,10 @@ def test_abuseipdb_service_investigate_ip_success(monkeypatch):
         def json(self):
             return {"data": {"attributes": fake_attrs}}
 
-    def fake_get(url, headers, params, timeout):
+    def fake_get(url, **kwargs):
         return FakeResponse()
 
-    monkeypatch.setattr("openm.services.abuseipdb_service.requests.get", fake_get)
+    monkeypatch.setattr("openm.core.http_client.http_get", fake_get)
     monkeypatch.setattr(
         AbuseIPDBService, "get_key", staticmethod(lambda: "fake-key")
     )
@@ -4106,10 +4106,10 @@ def test_abuseipdb_service_investigate_ip_rate_limit_returns_unavailable(monkeyp
     class FakeResponse:
         status_code = 429
 
-    def fake_get(url, headers, params, timeout):
+    def fake_get(url, **kwargs):
         return FakeResponse()
 
-    monkeypatch.setattr("openm.services.abuseipdb_service.requests.get", fake_get)
+    monkeypatch.setattr("openm.core.http_client.http_get", fake_get)
     monkeypatch.setattr(
         AbuseIPDBService, "get_key", staticmethod(lambda: "fake-key")
     )
@@ -4128,10 +4128,10 @@ def test_abuseipdb_service_query_ip_invalid_json_returns_none(monkeypatch):
         def json(self):
             raise ValueError("not json")
 
-    def fake_get(url, headers, params, timeout):
+    def fake_get(url, **kwargs):
         return FakeResponse()
 
-    monkeypatch.setattr("openm.services.abuseipdb_service.requests.get", fake_get)
+    monkeypatch.setattr("openm.core.http_client.http_get", fake_get)
     monkeypatch.setattr(
         AbuseIPDBService, "get_key", staticmethod(lambda: "fake-key")
     )
@@ -4406,10 +4406,10 @@ def test_hibp_service_query_email_breaches_success(monkeypatch):
         def json(self):
             return [{"Name": "Adobe", "Title": "Adobe"}]
 
-    def fake_get(url, headers, params, timeout):
+    def fake_get(url, **kwargs):
         return FakeResponse()
 
-    monkeypatch.setattr("openm.services.hibp_service.requests.get", fake_get)
+    monkeypatch.setattr("openm.core.http_client.http_get", fake_get)
     monkeypatch.setattr(HibpService, "get_key", staticmethod(lambda: "fake-key"))
 
     result = HibpService.query_email_breaches("test@example.com")
@@ -4424,7 +4424,7 @@ def test_hibp_service_query_email_breaches_404_empty(monkeypatch):
         status_code = 404
 
     monkeypatch.setattr(
-        "openm.services.hibp_service.requests.get",
+        "openm.core.http_client.http_get",
         lambda url, headers, params, timeout: FakeResponse(),
     )
     monkeypatch.setattr(HibpService, "get_key", staticmethod(lambda: "fake-key"))
@@ -4451,7 +4451,7 @@ def test_hibp_service_query_domain_breaches_unauthorized_returns_none(monkeypatc
         status_code = 401
 
     monkeypatch.setattr(
-        "openm.services.hibp_service.requests.get",
+        "openm.core.http_client.http_get",
         lambda url, headers, params, timeout: FakeResponse(),
     )
     monkeypatch.setattr(HibpService, "get_key", staticmethod(lambda: "fake-key"))
@@ -4471,7 +4471,7 @@ def test_hibp_service_query_breach_details_success(monkeypatch):
             return {"Name": "Adobe", "Title": "Adobe", "PwnCount": 100}
 
     monkeypatch.setattr(
-        "openm.services.hibp_service.requests.get",
+        "openm.core.http_client.http_get",
         lambda url, headers, params, timeout: FakeResponse(),
     )
     monkeypatch.setattr(HibpService, "get_key", staticmethod(lambda: "fake-key"))
@@ -4511,10 +4511,10 @@ def test_hibp_service_investigate_email_normalizes(monkeypatch):
         def json(self):
             return raw
 
-    def fake_get(url, headers, params, timeout):
+    def fake_get(url, **kwargs):
         return FakeResponse()
 
-    monkeypatch.setattr("openm.services.hibp_service.requests.get", fake_get)
+    monkeypatch.setattr("openm.core.http_client.http_get", fake_get)
     monkeypatch.setattr(HibpService, "get_key", staticmethod(lambda: "fake-key"))
 
     result = HibpService.investigate_email("test@example.com")
@@ -4789,11 +4789,11 @@ def test_urlscan_service_submit_poll_false(monkeypatch):
                 "result": "https://urlscan.io/result/abc-123/",
             }
 
-    def fake_post(url, headers, json, timeout):
+    def fake_post(url, **kwargs):
         return FakeResponse()
 
     monkeypatch.setattr(
-        "openm.services.urlscan_service.requests.post",
+        "openm.core.http_client.http_post",
         fake_post,
     )
 
@@ -4817,12 +4817,12 @@ def test_urlscan_service_submit_adds_https_scheme(monkeypatch):
         def json(self):
             return {"uuid": "x", "result": "y"}
 
-    def fake_post(url, headers, json, timeout):
-        captured["target"] = json.get("url")
+    def fake_post(url, **kwargs):
+        captured["target"] = kwargs.get("json", {}).get("url")
         return FakeResponse()
 
     monkeypatch.setattr(
-        "openm.services.urlscan_service.requests.post",
+        "openm.core.http_client.http_post",
         fake_post,
     )
 
@@ -4845,7 +4845,7 @@ def test_urlscan_service_submit_poll_success(monkeypatch):
     submit_calls = {"n": 0}
     result_calls = {"n": 0}
 
-    def fake_post(url, headers, json, timeout):
+    def fake_post(url, **kwargs):
         submit_calls["n"] += 1
         return FakeSubmit()
 
@@ -4857,7 +4857,7 @@ def test_urlscan_service_submit_poll_success(monkeypatch):
         def json(self):
             return self._body
 
-    def fake_get(url, headers, timeout):
+    def fake_get(url, **kwargs):
         result_calls["n"] += 1
         if result_calls["n"] == 1:
             return FakeResult(404)
@@ -4878,11 +4878,11 @@ def test_urlscan_service_submit_poll_success(monkeypatch):
         })
 
     monkeypatch.setattr(
-        "openm.services.urlscan_service.requests.post",
+        "openm.core.http_client.http_post",
         fake_post,
     )
     monkeypatch.setattr(
-        "openm.services.urlscan_service.requests.get",
+        "openm.core.http_client.http_get",
         fake_get,
     )
 
@@ -4910,11 +4910,11 @@ def test_urlscan_service_submit_rate_limited(monkeypatch):
     class FakeResponse:
         status_code = 429
 
-    def fake_post(url, headers, json, timeout):
+    def fake_post(url, **kwargs):
         return FakeResponse()
 
     monkeypatch.setattr(
-        "openm.services.urlscan_service.requests.post",
+        "openm.core.http_client.http_post",
         fake_post,
     )
 
@@ -4932,11 +4932,11 @@ def test_urlscan_service_submit_unauthorized(monkeypatch):
     class FakeResponse:
         status_code = 401
 
-    def fake_post(url, headers, json, timeout):
+    def fake_post(url, **kwargs):
         return FakeResponse()
 
     monkeypatch.setattr(
-        "openm.services.urlscan_service.requests.post",
+        "openm.core.http_client.http_post",
         fake_post,
     )
 
@@ -4965,10 +4965,10 @@ def test_urlscan_service_normalize_lists_dict_form(monkeypatch):
         def json(self):
             return self._body
 
-    def fake_post(url, headers, json, timeout):
+    def fake_post(url, **kwargs):
         return FakeSubmit()
 
-    def fake_get(url, headers, timeout):
+    def fake_get(url, **kwargs):
         return FakeResult(200, {
             "uuid": "abc",
             "page": {"domain": "example.com", "url": "https://example.com/", "status": "200"},
@@ -4985,11 +4985,11 @@ def test_urlscan_service_normalize_lists_dict_form(monkeypatch):
         })
 
     monkeypatch.setattr(
-        "openm.services.urlscan_service.requests.post",
+        "openm.core.http_client.http_post",
         fake_post,
     )
     monkeypatch.setattr(
-        "openm.services.urlscan_service.requests.get",
+        "openm.core.http_client.http_get",
         fake_get,
     )
 
@@ -5017,21 +5017,21 @@ def test_urlscan_service_pending_when_timeout(monkeypatch):
         def json(self):
             return {"uuid": "abc", "result": "x"}
 
-    def fake_post(url, headers, json, timeout):
+    def fake_post(url, **kwargs):
         return FakeSubmit()
 
     class FakeResult:
         status_code = 404
 
-    def fake_get(url, headers, timeout):
+    def fake_get(url, **kwargs):
         return FakeResult()
 
     monkeypatch.setattr(
-        "openm.services.urlscan_service.requests.post",
+        "openm.core.http_client.http_post",
         fake_post,
     )
     monkeypatch.setattr(
-        "openm.services.urlscan_service.requests.get",
+        "openm.core.http_client.http_get",
         fake_get,
     )
 

@@ -2,9 +2,7 @@ import logging
 import os
 from typing import Any, Dict, Optional
 
-import requests
-
-from openm.core.transform import increment_api_call_counter
+from openm.core import http_client
 from openm.extensions import db
 from openm.models.api_key import ApiKey
 
@@ -65,28 +63,23 @@ class AbuseIPDBService:
             "maxAgeInDays": 90,
             "verbose": "",  # free tier ignora, mas documentacao aceita
         }
-        try:
-            resp = requests.get(url, headers=headers, params=params, timeout=15)
-        except requests.RequestException as exc:
-            logger.warning("AbuseIPDB request falhou para %s: %s", ip, exc)
+        resp = http_client.http_get(url, params=params, headers=headers, timeout=15.0)
+        if resp is None:
+            logger.warning("AbuseIPDB request falhou para %s", ip)
             return None
 
         if resp.status_code == 404:
-            increment_api_call_counter()
             logger.warning("AbuseIPDB nao encontrou dados para %s", ip)
             return None
         if resp.status_code in (401, 403):
-            increment_api_call_counter()
             logger.warning(
                 "AbuseIPDB chave invalida para %s (status %d)", ip, resp.status_code
             )
             return None
         if resp.status_code == 429:
-            increment_api_call_counter()
             logger.warning("AbuseIPDB rate-limit para %s", ip)
             return None
         if resp.status_code != 200:
-            increment_api_call_counter()
             logger.warning(
                 "AbuseIPDB resposta nao tratada para %s: status=%d",
                 ip, resp.status_code,
@@ -95,7 +88,6 @@ class AbuseIPDBService:
 
         try:
             data = resp.json()
-            increment_api_call_counter()
         except ValueError:
             logger.warning("AbuseIPDB resposta nao-JSON para %s", ip)
             return None
