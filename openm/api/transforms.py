@@ -9,6 +9,7 @@ from openm.core.entity import ENTITY_CLASSES
 from openm.core.transform import TransformRegistry
 from openm.core.transform_cache import get_cached_result, set_cached_result
 from openm.models.audit_log import AuditLog
+from openm.services.health_check import get_all_services_health, get_service_health
 from openm.utils.neo4j_client import get_graph_manager
 
 
@@ -437,3 +438,39 @@ def transform_metrics():
         "summary": summary,
         "by_transform": by_transform_list,
     })
+
+
+@transforms_bp.route("/services/health", methods=["GET"])
+@require_auth
+@require_role("admin")
+def services_health():
+    """
+    GET /api/services/health
+
+    Health check dos services externos (issue #79). Admin-only.
+
+    Para cada service que declara ``service_name`` em um transform
+    registrado, faz uma chamada leve ao endpoint de health do service
+    externo para validar a chave cadastrada e a disponibilidade. O
+    resultado e cacheado por 5 minutos para evitar consumir quota.
+
+    Query params:
+        - service: restringir a um service especifico (ex: ?service=shodan).
+        - force=true: bypassa o cache e pinga o service de novo.
+
+    Resposta:
+        {
+            "services": {
+                "shodan": {"status": "ok", "key_valid": true, ...},
+                "virustotal": {"status": "ok", "key_valid": true, ...},
+                "hunter": {"status": "error", "key_valid": false, "message": "..."}
+            }
+        }
+    """
+    force = request.args.get("force", "").lower() == "true"
+    single = request.args.get("service")
+
+    if single:
+        return jsonify({"services": {single: get_service_health(single, force=force)}})
+
+    return jsonify({"services": get_all_services_health(force=force)})
