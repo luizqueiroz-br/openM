@@ -31,6 +31,250 @@ def test_resolve_ip_transform_skips_non_domain():
     assert result.relationships == []
 
 
+# ====================================================================
+# Reverse DNS Transform
+# ====================================================================
+
+
+def test_reverse_dns_transform_basic():
+    """IPAddress → 1 Domain canônico via PTR, edge RESOLVES_TO."""
+    from openm.transforms.reverse_dns import ReverseDnsTransform
+
+    ip = IPAddress(value="8.8.8.8", properties={})
+    transform = ReverseDnsTransform()
+
+    with patch(
+        "openm.transforms.reverse_dns.reverse_dns",
+        return_value=("dns.google", []),
+    ):
+        result = transform.run(ip)
+
+    # 1 Domain primário
+    assert len(result.entities) == 1
+    primary = result.entities[0]
+    assert isinstance(primary, Domain)
+    assert primary.value == "dns.google"
+    assert primary.properties["reverse_dns_primary"] is True
+    assert primary.properties["resolved_from_ip"] == "8.8.8.8"
+    assert primary.properties["source"] == "ptr"
+    assert "resolved_at" in primary.properties
+
+    # 1 RESOLVES_TO edge com direction=reverse
+    assert len(result.relationships) == 1
+    rel = result.relationships[0]
+    assert rel["type"] == "RESOLVES_TO"
+    assert rel["from_id"] == ip.id
+    assert rel["to_id"] == primary.id
+    assert rel["properties"]["direction"] == "reverse"
+    assert rel["properties"]["source"] == "ptr"
+
+
+def test_reverse_dns_transform_with_aliases():
+    """IP → Domain canônico + N aliases como Domains adicionais."""
+    from openm.transforms.reverse_dns import ReverseDnsTransform
+
+    ip = IPAddress(value="1.1.1.1", properties={})
+    transform = ReverseDnsTransform()
+
+    with patch(
+        "openm.transforms.reverse_dns.reverse_dns",
+        return_value=("one.one.one.one", ["cloudflare-dns.com", "备用.云flare.com"]),
+    ):
+        result = transform.run(ip)
+
+    # 1 primário + 2 aliases = 3 Domain
+    assert len(result.entities) == 3
+    assert all(isinstance(e, Domain) for e in result.entities)
+
+    # Apenas 1 marcado como primary
+    primaries = [e for e in result.entities if e.properties["reverse_dns_primary"]]
+    aliases = [e for e in result.entities if not e.properties["reverse_dns_primary"]]
+    assert len(primaries) == 1
+    assert primaries[0].value == "one.one.one.one"
+    assert len(aliases) == 2
+    assert {a.value for a in aliases} == {"cloudflare-dns.com", "备用.云flare.com"}
+
+    # 3 edges RESOLVES_TO
+    assert len(result.relationships) == 3
+    assert all(r["type"] == "RESOLVES_TO" for r in result.relationships)
+    assert all(r["properties"]["direction"] == "reverse" for r in result.relationships)
+
+
+def test_reverse_dns_transform_skips_empty_aliases():
+    """reverse_dns retorna (hostname, []) → apenas Domain primário."""
+    from openm.transforms.reverse_dns import ReverseDnsTransform
+
+    ip = IPAddress(value="8.8.4.4", properties={})
+    transform = ReverseDnsTransform()
+
+    with patch(
+        "openm.transforms.reverse_dns.reverse_dns",
+        return_value=("dns.google", []),
+    ):
+        result = transform.run(ip)
+
+    assert len(result.entities) == 1
+    assert len(result.relationships) == 1
+
+
+def test_reverse_dns_transform_dedupes_primary_in_aliases():
+    """Se hostname aparece em aliases, não duplicar."""
+    from openm.transforms.reverse_dns import ReverseDnsTransform
+
+    ip = IPAddress(value="8.8.8.8", properties={})
+    transform = ReverseDnsTransform()
+
+    with patch(
+        "openm.transforms.reverse_dns.reverse_dns",
+        return_value=("dns.google", ["dns.google", "other.alias"]),
+    ):
+        result = transform.run(ip)
+
+    # 1 primário + 1 alias (não 2)
+    assert len(result.entities) == 2
+    assert len(result.relationships) == 2
+    values = {e.value for e in result.entities}
+    assert values == {"dns.google", "other.alias"}
+
+
+def test_reverse_dns_transform_no_ptr_returns_empty():
+    """IP sem PTR → reverse_dns retorna None → result vazio."""
+    from openm.transforms.reverse_dns import ReverseDnsTransform
+
+    ip = IPAddress(value="192.0.2.1", properties={})
+    transform = ReverseDnsTransform()
+
+    with patch(
+        "openm.transforms.reverse_dns.reverse_dns",
+        return_value=None,
+    ):
+        result = transform.run(ip)
+
+    assert result.entities == []
+    assert result.relationships == []
+
+
+def test_reverse_dns_transform_skips_non_ip():
+    """Template method: Email → result vazio (sem chamar reverse_dns)."""
+    from openm.transforms.reverse_dns import ReverseDnsTransform
+
+    email = Email(value="a@b.com")
+    transform = ReverseDnsTransform()
+
+    with patch("openm.transforms.reverse_dns.reverse_dns") as mock:
+        result = transform.run(email)
+
+    mock.assert_not_called()
+    assert result.entities == []
+    assert result.relationships == []
+
+
+def test_reverse_dns_registered():
+    """ReverseDnsTransform aparece no TransformRegistry."""
+    from openm.core.transform import TransformRegistry
+    from openm.transforms.reverse_dns import ReverseDnsTransform
+
+    # Está registrado
+    assert TransformRegistry.get("reverse_dns") is ReverseDnsTransform
+
+    # E aparece para IPAddress
+    compatible = TransformRegistry.list_for_type("IPAddress")
+    names = [t["name"] for t in compatible]
+    assert "reverse_dns" in names
+
+    # Mas não para outros tipos
+    for other_type in ("Domain", "Email", "Person", "Device", "BankAccount", "URL", "FileHash"):
+        assert "reverse_dns" not in [
+            t["name"] for t in TransformRegistry.list_for_type(other_type)
+        ]
+
+
+# ====================================================================
+# DNS Service — reverse_dns() unit tests
+# ====================================================================
+
+
+def test_dns_service_reverse_dns_success():
+    """reverse_dns retorna (hostname, aliases) quando PTR existe."""
+    import socket
+    from openm.services.dns_service import reverse_dns
+
+    class FakeGetHostByAddr:
+        def __call__(self, ip):
+            return ("dns.google", [], ["alias1.example.com", "alias2.example.com"])
+
+    with patch.object(socket, "gethostbyaddr", FakeGetHostByAddr()):
+        result = reverse_dns("8.8.8.8")
+    assert result == ("dns.google", ["alias1.example.com", "alias2.example.com"])
+
+
+def test_dns_service_reverse_dns_no_aliases():
+    """Aliases ausente → lista vazia."""
+    import socket
+    from openm.services.dns_service import reverse_dns
+
+    def fake_gethostbyaddr(ip):
+        return ("one.one.one.one", [], [])
+
+    with patch.object(socket, "gethostbyaddr", fake_gethostbyaddr):
+        result = reverse_dns("1.1.1.1")
+    assert result == ("one.one.one.one", [])
+
+
+def test_dns_service_reverse_dns_herror_returns_none():
+    """Sem PTR → herror → None."""
+    import socket
+    from openm.services.dns_service import reverse_dns
+
+    def fake_gethostbyaddr(ip):
+        raise socket.herror("no PTR record")
+
+    with patch.object(socket, "gethostbyaddr", fake_gethostbyaddr):
+        result = reverse_dns("192.0.2.1")
+    assert result is None
+
+
+def test_dns_service_reverse_dns_gaierror_returns_none():
+    """IP inválido → gaierror → None."""
+    import socket
+    from openm.services.dns_service import reverse_dns
+
+    def fake_gethostbyaddr(ip):
+        raise socket.gaierror("name or service not known")
+
+    with patch.object(socket, "gethostbyaddr", fake_gethostbyaddr):
+        result = reverse_dns("not.an.ip")
+    assert result is None
+
+
+def test_dns_service_reverse_dns_timeout_returns_none():
+    """Timeout → None."""
+    import socket
+    from openm.services.dns_service import reverse_dns
+
+    def fake_gethostbyaddr(ip):
+        raise socket.timeout("timed out")
+
+    with patch.object(socket, "gethostbyaddr", fake_gethostbyaddr):
+        result = reverse_dns("10.0.0.1", timeout=0.5)
+    assert result is None
+
+
+def test_dns_service_reverse_dns_resets_timeout():
+    """Mesmo padrão do resolve_domain: timeout é resetado no finally."""
+    import socket
+    from openm.services.dns_service import reverse_dns
+
+    def fake_gethostbyaddr(ip):
+        raise socket.herror("fail")
+
+    with patch.object(socket, "gethostbyaddr", fake_gethostbyaddr):
+        # Antes: timeout default do sistema
+        reverse_dns("8.8.8.8")
+    # Depois: timeout foi resetado para None
+    assert socket.getdefaulttimeout() is None
+
+
 def test_fraud_email_transform_simulation():
     email = Email(value="test@example.com")
     transform = CheckFraudEmailTransform()

@@ -6,6 +6,7 @@ from .geoip import GeoIPTransform
 from .hunter_domain import HunterDomainTransform
 from .hunter_email import HunterEmailTransform
 from .virustotal import VirusTotalTransform
+from .reverse_dns import ReverseDnsTransform
 
 __all__ = [
     "ResolveIPTransform",
@@ -16,4 +17,5 @@ __all__ = [
     "HunterDomainTransform",
     "HunterEmailTransform",
     "VirusTotalTransform",
+    "ReverseDnsTransform",
 ]
