@@ -26,10 +26,7 @@ class CheckFraudEmailTransform(Transform):
     service_name = "emailrep"
     service_display = "EmailRep.io"
 
-    def run(self, entity: Entity) -> TransformResult:
-        if entity.type != "Email":
-            return TransformResult()
-
+    def _run(self, entity: Entity) -> TransformResult:
         intel = ThreatIntelService.investigate_email(entity.value)
 
         entities: List[Entity] = []

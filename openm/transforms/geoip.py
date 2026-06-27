@@ -25,10 +25,7 @@ class GeoIPTransform(Transform):
         "coordenadas e organização de um endereço IP."
     )
 
-    def run(self, entity: Entity) -> TransformResult:
-        if entity.type != "IPAddress":
-            return TransformResult()
-
+    def _run(self, entity: Entity) -> TransformResult:
         geo_data = GeoIPService.investigate_ip(entity.value)
 
         entities: List[Entity] = []

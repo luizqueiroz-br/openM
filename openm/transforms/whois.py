@@ -46,10 +46,7 @@ class WhoisTransform(Transform):
         "nameservers e contatos (registrant, admin, tech) de um domínio."
     )
 
-    def run(self, entity: Entity) -> TransformResult:
-        if entity.type != "Domain":
-            return TransformResult()
-
+    def _run(self, entity: Entity) -> TransformResult:
         whois_data = WhoisService.investigate_domain(entity.value)
 
         entities: List[Entity] = []

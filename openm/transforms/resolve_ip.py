@@ -20,10 +20,7 @@ class ResolveIPTransform(Transform):
     input_types = ["Domain"]
     description = "Resolve um domínio para seus endereços IPv4 via DNS."
 
-    def run(self, entity: Entity) -> TransformResult:
-        if entity.type != "Domain":
-            return TransformResult()
-
+    def _run(self, entity: Entity) -> TransformResult:
         ips = resolve_domain(entity.value)
         if not ips:
             return TransformResult()

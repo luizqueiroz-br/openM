@@ -33,13 +33,34 @@ class Transform(ABC):
     service_name: Optional[str] = None  # ex: "shodan", "virustotal"
     service_display: Optional[str] = None  # ex: "Shodan", "VirusTotal"
 
-    @abstractmethod
     def run(self, entity: Entity) -> TransformResult:
         """
-        Executa a lógica do transform.
+        Template method que valida input_types e delega para _run().
+
+        Se o tipo da entidade não está em input_types, retorna
+        TransformResult vazio imediatamente (sem executar o transform).
 
         Args:
             entity: entidade de entrada.
+
+        Returns:
+            TransformResult contendo novas entidades e relacionamentos.
+        """
+        if entity.type not in self.input_types:
+            return TransformResult()
+        return self._run(entity)
+
+    @abstractmethod
+    def _run(self, entity: Entity) -> TransformResult:
+        """
+        Implementação específica do transform.
+
+        O tipo da entidade já foi validado contra input_types pelo
+        template method run(). Subclasses não precisam repetir a
+        verificação de tipo.
+
+        Args:
+            entity: entidade de entrada (tipo já validado).
 
         Returns:
             TransformResult contendo novas entidades e relacionamentos.
