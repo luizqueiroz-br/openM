@@ -17,6 +17,7 @@ from .urlscan import UrlscanTransform
 from .person_discovery import PersonToDomainTransform
 from .iban_swift import IbanSwiftTransform
 from .mac_vendor import MacVendorTransform
+from .securitytrails import SecurityTrailsTransform
 
 __all__ = [
     "ResolveIPTransform",
@@ -38,4 +39,5 @@ __all__ = [
     "PersonToDomainTransform",
     "IbanSwiftTransform",
     "MacVendorTransform",
+    "SecurityTrailsTransform",
 ]
