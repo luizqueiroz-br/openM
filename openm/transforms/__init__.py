@@ -14,6 +14,7 @@ from .dns_records import DnsRecordsTransform
 from .abuseipdb import AbuseIpdbTransform
 from .hibp import HibpTransform
 from .urlscan import UrlscanTransform
+from .person_discovery import PersonToDomainTransform
 
 __all__ = [
     "ResolveIPTransform",
@@ -32,4 +33,5 @@ __all__ = [
     "AbuseIpdbTransform",
     "HibpTransform",
     "UrlscanTransform",
+    "PersonToDomainTransform",
 ]
