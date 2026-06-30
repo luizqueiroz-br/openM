@@ -10,8 +10,9 @@
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
 
-    <!-- Web Awesome 3.9+ (issue #127) — design system base -->
-    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@awesome.me/awesome@3/css/awesome.min.css" />
+    <!-- Web Awesome 3.10 (issue #127 + #134) — design system base.
+         Pacote renomeado: @awesome.me/awesome@3 → @awesome.me/webawesome@3 (a URL antiga retorna 404). -->
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@awesome.me/webawesome@3/dist/styles/webawesome.css" />
 
     <!-- Fuse.js 7.x (issue #131) — busca fuzzy -->
     <script src="{{ url_for('static', filename='vendor/fuse.min.js') }}"></script>
@@ -24,6 +25,7 @@
 
     <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
     <link rel="stylesheet" href="{{ url_for('static', filename='css/palette.css') }}">
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/tour.css') }}">
 </head>
 <body>
     <!-- Skip links (issue #128 — WCAG 2.2 AA foundations) -->
@@ -315,8 +317,14 @@
     <script src="{{ url_for('static', filename='js/admin.js') }}"></script>
     <script src="{{ url_for('static', filename='js/auth.js') }}"></script>
     <script src="{{ url_for('static', filename='js/transforms.js') }}"></script>
-    <!-- Web Awesome 3.9+ (issue #127) — must load before app.js -->
-    <script type="module" src="https://cdn.jsdelivr.net/npm/@awesome.me/awesome@3/dist/awesome.loader.js"></script>
+    <!-- Onboarding tour + template gallery (issue #134) — expõem window.OpenMTour e window.OpenMTemplates
+         Devem ser carregados ANTES de app.js para que App.init() e o handler de #btn-create-inv
+         encontrem os globals ao serem executados. -->
+    <script src="{{ url_for('static', filename='js/tour.js') }}"></script>
+    <script src="{{ url_for('static', filename='js/templates.js') }}"></script>
+    <!-- Web Awesome 3.10 (issue #127 + #134) — must load before app.js.
+         Pacote renomeado: @awesome.me/awesome@3 → @awesome.me/webawesome@3 (a URL antiga retorna 404). -->
+    <script type="module" src="https://cdn.jsdelivr.net/npm/@awesome.me/webawesome@3/dist/webawesome.loader.js"></script>
     <script src="{{ url_for('static', filename='js/app.js') }}"></script>
     <!-- Lucide icons (issue #127) — loader converts data-lucide="x" → inline SVG -->
     <script src="https://unpkg.com/lucide@latest"></script>
