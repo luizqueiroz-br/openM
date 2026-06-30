@@ -461,6 +461,23 @@
                 }
             },
         },
+        {
+            // Issue #134: replay do onboarding tour de 5 passos.
+            // Visível para todos (mesmo padrão dos outros comandos de Ajuda).
+            // O `force: true` ignora localStorage.openm.tour.onboarding.completed.
+            id: 'help.replay-tour',
+            label: 'Replay do tour guiado',
+            hint: 'Roda novamente o tour de 5 passos',
+            category: 'Ajuda',
+            icon: 'compass',
+            run: () => {
+                if (window.OpenMTour && typeof window.OpenMTour.start === 'function') {
+                    window.OpenMTour.start({ force: true });
+                } else if (window.App && window.App.announce) {
+                    window.App.announce('Tour não disponível', 'assertive');
+                }
+            },
+        },
     ];
 
     // ============ Categorias canônicas (ordem de exibição) ============

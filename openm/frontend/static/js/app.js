@@ -878,16 +878,21 @@ const App = {
         await this.createInvestigation();
     },
 
-    async createInvestigation() {
-        const title = document.getElementById('inv-title').value.trim();
-        const desc = document.getElementById('inv-desc').value.trim();
-        if (!title) {
+    // Issue #134: aceita args para uso programático por OpenMTemplates.
+    // Quando chamada sem args (handler antigo do #btn-create-inv), lê
+    // do DOM (#inv-title, #inv-desc). Quando chamada com args, usa
+    // os valores passados (galeria de templates cria investigation
+    // programaticamente com título/desc já preenchidos).
+    async createInvestigation(title, description) {
+        const finalTitle = (title != null ? title : (document.getElementById('inv-title')?.value || '')).trim();
+        const finalDesc = (description != null ? description : (document.getElementById('inv-desc')?.value || '')).trim();
+        if (!finalTitle) {
             this.setStatus('Título é obrigatório', 'error');
-            return;
+            return null;
         }
         try {
-            const result = await OpenMAPI.createInvestigation(title, desc, null);
-            const savedTitle = result?.investigation?.title || title;
+            const result = await OpenMAPI.createInvestigation(finalTitle, finalDesc, null);
+            const savedTitle = result?.investigation?.title || finalTitle;
             const savedId = result?.investigation?.id;
 
             // Salva o snapshot atual do grafo na nova investigation.
@@ -908,11 +913,18 @@ const App = {
             }
 
             this.setStatus(`✓ Investigação "${savedTitle}" criada e salva.`, 'success');
-            document.getElementById('inv-title').value = '';
-            document.getElementById('inv-desc').value = '';
+            // Só limpa o DOM se foi lido do DOM (chamada sem args).
+            if (title == null) {
+                const titleEl = document.getElementById('inv-title');
+                const descEl = document.getElementById('inv-desc');
+                if (titleEl) titleEl.value = '';
+                if (descEl) descEl.value = '';
+            }
             this.loadInvestigations();
+            return result?.investigation || null;
         } catch (err) {
             this.setStatus(err.message, 'error');
+            return null;
         }
     },
 
@@ -1050,7 +1062,21 @@ const App = {
         });
 
         // Sidebar
-        document.getElementById('btn-create-inv').addEventListener('click', () => this.createInvestigation());
+        // Issue #134: "Nova Investigação" agora abre a galeria de templates
+        // (Blank + 4 templates temáticos) ao invés de criar investigation
+        // vazia direto. Fallback para o comportamento antigo caso os
+        // scripts tour.js/templates.js não tenham carregado (ordem de
+        // scripts, CDN fora, etc.) — resiliência.
+        const btnCreateInv = document.getElementById('btn-create-inv');
+        if (btnCreateInv) {
+            btnCreateInv.addEventListener('click', () => {
+                if (window.OpenMTemplates && typeof window.OpenMTemplates.openGallery === 'function') {
+                    window.OpenMTemplates.openGallery();
+                } else {
+                    this.createInvestigation();
+                }
+            });
+        }
         document.getElementById('btn-save-key').addEventListener('click', () => this.saveKey());
 
         // Filtros de investigations (issue #27)
@@ -1276,7 +1302,7 @@ const App = {
         }
     },
 
-    init() {
+    async init() {
         // Apply theme before rendering (prevents flash of wrong theme)
         this.applyStoredTheme();
         this.watchSystemTheme();
@@ -1335,7 +1361,25 @@ const App = {
         this.loadKeyServices();
         this.loadKeys();
         this.setStatus('Pronto. Arraste entidades da paleta para o canvas.');
-        this.loadUser();
+        // Issue #134: await loadUser() para que o tour auto-start possa
+        // ler `this.currentUser` ao decidir gating por role.
+        await this.loadUser();
+
+        // ────────────────────────────────────────────────────────────────
+        // Issue #134: trigger onboarding tour no primeiro login.
+        // Auto-start suppressed em tablet/mobile (≤1024px = `_isTablet()`):
+        // o fullscreen experience no first run é confuso nesses breakpoints.
+        // O usuário pode chamar manualmente via Cmd+K → "Replay do tour guiado".
+        // setTimeout(800) dá fôlego para o Grafo terminar de renderizar o
+        // primeiro fit() e o spotlight não cair em posição errada.
+        // ────────────────────────────────────────────────────────────────
+        if (window.OpenMTour && !this._isTablet()) {
+            setTimeout(() => {
+                if (window.OpenMTour && typeof window.OpenMTour.start === 'function') {
+                    window.OpenMTour.start({ force: false });
+                }
+            }, 800);
+        }
     },
 
     async loadUser() {
