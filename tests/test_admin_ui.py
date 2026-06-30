@@ -92,7 +92,7 @@ def test_admin_list_returns_users_with_required_fields(admin_client, app):
 def test_index_template_has_admin_section():
     """index.html contém a sidebar-section Administração."""
     html = _read_file(FRONTEND_DIR / "templates" / "index.html")
-    assert 'id="admin-section"' in html
+    assert 'id="section-admin"' in html
     assert 'data-roles="admin"' in html
     assert "Administração" in html
 
