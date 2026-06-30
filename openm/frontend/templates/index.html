@@ -22,9 +22,17 @@
     <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
 </head>
 <body>
+    <!-- Skip links (issue #128 — WCAG 2.2 AA foundations) -->
+    <nav class="skip-links" aria-label="Atalhos de navegação">
+        <a href="#main" class="skip-link">Pular para o conteúdo principal</a>
+        <a href="#palette" class="skip-link">Pular para a navegação</a>
+        <a href="#canvas" class="skip-link">Pular para o grafo</a>
+        <a href="#inspector" class="skip-link">Pular para os detalhes</a>
+    </nav>
+
     <div class="app-shell">
         <!-- ============================================ TOPBAR -->
-        <header class="topbar">
+        <header class="topbar" role="banner" aria-label="Barra superior">
             <div class="brand">
                 <div class="logo"><i data-lucide="git-fork"></i></div>
                 <span>OpenM</span>
@@ -37,7 +45,7 @@
                 <button class="btn icon" id="btn-save" title="Salvar investigação" data-roles="admin,analyst"><i data-lucide="save"></i></button>
                 <button class="btn icon" id="btn-export" title="Exportar JSON"><i data-lucide="download"></i></button>
                 <button class="btn icon" id="btn-import" title="Importar JSON" data-roles="admin,analyst"><i data-lucide="upload"></i></button>
-                <input type="file" id="file-input" accept="application/json" style="display:none">
+                <input type="file" id="file-input" accept="application/json" style="display:none" aria-hidden="true" aria-label="Selecionar arquivo JSON para importar investigação">
             </div>
             <div class="spacer"></div>
             <div class="conn"><span class="dot" id="dot-neo4j"></span><span>Neo4j</span></div>
@@ -52,56 +60,56 @@
                 <i data-lucide="circle-user"></i>
                 <span id="user-email"></span>
                 <span id="user-role" class="role-badge" data-role=""></span>
-                <a class="btn icon" id="btn-logout" href="/logout" title="Sair">
+                <a class="btn icon" id="btn-logout" href="/logout" title="Sair" aria-label="Sair">
                     <i data-lucide="log-out"></i>
                 </a>
             </div>
         </header>
 
         <!-- ============================================ WORKSPACE -->
-        <main class="workspace">
+        <main id="main" class="workspace" tabindex="-1" aria-label="Área de trabalho">
             <!-- ====== PALETTE (ESQ) ====== -->
-            <aside class="sidebar left" id="palette">
+            <aside id="palette" class="sidebar left" tabindex="-1" aria-label="Paleta de entidades e investigações">
                 <div class="sidebar-section">
                     <h3><i data-lucide="search"></i>Buscar</h3>
                     <div class="search-bar">
                         <i data-lucide="search"></i>
-                        <input type="text" id="search-input" placeholder="Filtrar entidades...">
+                        <input type="text" id="search-input" placeholder="Filtrar entidades..." aria-label="Buscar entidades">
                     </div>
                 </div>
                 <div class="sidebar-section">
                     <h3><i data-lucide="shapes"></i>Entidades</h3>
-                    <div id="palette-items"></div>
+                    <div id="palette-items" role="list" aria-label="Entidades disponíveis para arrastar ao grafo"></div>
                 </div>
                 <div class="sidebar-section">
                     <h3><i data-lucide="history"></i>Investigações</h3>
-                    <input type="text" id="inv-title" placeholder="Título...">
-                    <textarea id="inv-desc" rows="2" placeholder="Descrição..." style="margin-top:0.4rem"></textarea>
+                    <input type="text" id="inv-title" placeholder="Título..." aria-label="Título da investigação">
+                    <textarea id="inv-desc" rows="2" placeholder="Descrição..." style="margin-top:0.4rem" aria-label="Descrição da investigação"></textarea>
                     <button class="btn primary" id="btn-create-inv" style="width:100%; margin-top:0.4rem" data-roles="admin,analyst">
                         <i data-lucide="plus"></i>Nova Investigação
                     </button>
                     <div class="inv-filters">
-                        <input type="text" id="inv-search" placeholder="Buscar..." class="inv-filter-input">
-                        <select id="inv-status-filter" class="inv-filter-select">
+                        <input type="text" id="inv-search" placeholder="Buscar..." class="inv-filter-input" aria-label="Buscar investigações">
+                        <select id="inv-status-filter" class="inv-filter-select" aria-label="Filtrar por status">
                             <option value="active">Ativas</option>
                             <option value="archived">Arquivadas</option>
                             <option value="all">Todas</option>
                         </select>
-                        <select id="inv-sort" class="inv-filter-select">
+                        <select id="inv-sort" class="inv-filter-select" aria-label="Ordenar investigações por">
                             <option value="-updated_at">Recente</option>
                             <option value="title">Título (A-Z)</option>
                             <option value="-created_at">Criação</option>
                         </select>
                     </div>
-                    <ul class="list" id="investigations-list"></ul>
+                    <ul class="list" id="investigations-list" role="list" aria-label="Lista de investigações salvas"></ul>
                 </div>
                 <div class="sidebar-section">
                     <h3><i data-lucide="key"></i>API Keys</h3>
-                    <select id="key-service" data-roles="admin,analyst">
+                    <select id="key-service" data-roles="admin,analyst" aria-label="Serviço de API">
                         <!-- options populados dinamicamente por loadKeyServices() -->
                     </select>
-                    <input type="text" id="key-value" placeholder="Chave..." style="margin-top:0.4rem" data-roles="admin,analyst">
-                    <select id="key-type" style="margin-top:0.4rem" data-roles="admin,analyst">
+                    <input type="text" id="key-value" placeholder="Chave..." style="margin-top:0.4rem" data-roles="admin,analyst" aria-label="Valor da chave de API">
+                    <select id="key-type" style="margin-top:0.4rem" data-roles="admin,analyst" aria-label="Tipo de chave">
                         <option value="free">Free</option>
                         <option value="paid">Paid</option>
                     </select>
@@ -116,7 +124,7 @@
                      A UI esconde via permissions.js + o backend revalida
                      com @require_role("admin") em openm/api/admin.py.
                 -->
-                <div class="sidebar-section" id="admin-section" data-roles="admin">
+                <div class="sidebar-section" id="admin-section" data-roles="admin" tabindex="-1" aria-label="Administração de usuários">
                     <h3><i data-lucide="users"></i>Administração</h3>
                     <button class="btn small" id="admin-refresh" style="width:100%; margin-bottom:0.4rem">
                         <i data-lucide="refresh-cw"></i>Atualizar
@@ -139,12 +147,12 @@
             </aside>
 
             <!-- ====== CANVAS (CENTRO) ====== -->
-            <section class="canvas-area">
+            <section id="canvas" class="canvas-area" tabindex="-1" aria-label="Grafo de entidades">
                 <div class="canvas-overlay">
-                    <button class="btn icon" id="ov-fit" title="Ajustar"><i data-lucide="maximize-2"></i></button>
-                    <button class="btn icon" id="ov-zoom-in" title="Zoom +"><i data-lucide="plus"></i></button>
-                    <button class="btn icon" id="ov-zoom-out" title="Zoom -"><i data-lucide="minus"></i></button>
-                    <button class="btn icon" id="ov-relayout" title="Reorganizar"><i data-lucide="git-fork"></i></button>
+                    <button class="btn icon" id="ov-fit" title="Ajustar" aria-label="Ajustar grafo à tela"><i data-lucide="maximize-2"></i></button>
+                    <button class="btn icon" id="ov-zoom-in" title="Zoom +" aria-label="Aumentar zoom"><i data-lucide="plus"></i></button>
+                    <button class="btn icon" id="ov-zoom-out" title="Zoom -" aria-label="Diminuir zoom"><i data-lucide="minus"></i></button>
+                    <button class="btn icon" id="ov-relayout" title="Reorganizar" aria-label="Reorganizar layout do grafo"><i data-lucide="git-fork"></i></button>
                 </div>
                 <div class="canvas-overlay bottom-right">
                     <div class="zoom-info"><span id="zoom-level">100%</span></div>
@@ -152,12 +160,12 @@
                         <span id="node-count">0</span> nós
                     </div>
                 </div>
-                <div id="cy"></div>
+                <div id="cy" role="application" tabindex="0" aria-label="Grafo interativo de entidades. Use Tab para navegar entre os nós, Enter para abrir detalhes, Escape para limpar seleção."></div>
             </section>
 
             <!-- ====== INSPECTOR (DIR) ====== -->
-            <aside class="sidebar right" id="inspector">
-                <div id="inspector-content">
+            <aside id="inspector" class="sidebar right" tabindex="-1" aria-label="Inspector de detalhes">
+                <div id="inspector-content" tabindex="-1" aria-live="polite" aria-atomic="true">
                     <div class="inspector-empty">
                         <i data-lucide="info" style="font-size:2rem; margin-bottom:0.5rem; display:block"></i>
                         Selecione um nó ou aresta para ver detalhes
@@ -167,7 +175,7 @@
         </main>
 
         <!-- ============================================ STATUSBAR -->
-        <footer class="statusbar">
+        <footer class="statusbar" role="contentinfo" aria-label="Barra de status">
             <span id="status-msg">Pronto.</span>
             <div class="spacer"></div>
             <span id="save-status" title="Status do auto-save">—</span>
@@ -197,5 +205,9 @@
     <!-- Lucide icons (issue #127) — loader converts data-lucide="x" → inline SVG -->
     <script src="https://unpkg.com/lucide@latest"></script>
     <script>lucide.createIcons();</script>
+
+    <!-- ARIA live regions (issue #128 — WCAG 2.2 AA foundations) -->
+    <div id="sr-status" class="sr-only" aria-live="polite" aria-atomic="true"></div>
+    <div id="sr-alert" class="sr-only" aria-live="assertive" aria-atomic="true"></div>
 </body>
 </html>
