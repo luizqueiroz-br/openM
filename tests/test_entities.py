@@ -9,6 +9,7 @@ from openm.core.entity import (
     Entity,
     FileHash,
     IPAddress,
+    MACAddress,
     Person,
     URL,
 )
@@ -44,6 +45,7 @@ def test_all_entity_subclasses_exist():
         "FileHash",
         "DnsRecord",
         "Breach",
+        "MACAddress",
     }
 
 
@@ -120,6 +122,35 @@ def test_dns_record_entity():
     instance = ENTITY_CLASSES["DnsRecord"](value="example.com", properties={"record_type": "CNAME"})
     assert isinstance(instance, DnsRecord)
     assert instance.properties["record_value"] == "example.com"
+
+
+def test_mac_address_entity():
+    """MACAddress: type/value/serialization/cytoscape/registration + OUI extraction."""
+    m = MACAddress(
+        value="00:1B:63:84:45:E6",
+        properties={"interface": "wifi0"},
+    )
+    assert m.type == "MACAddress"
+    assert m.value == "00:1B:63:84:45:E6"
+    # OUI extraido automaticamente no __init__.
+    assert m.properties["oui"] == "00:1B:63"
+    assert m.properties["interface"] == "wifi0"
+
+    data = m.to_dict()
+    assert data["type"] == "MACAddress"
+    assert data["value"] == "00:1B:63:84:45:E6"
+    assert data["properties"]["oui"] == "00:1B:63"
+
+    cyto = m.to_cytoscape()
+    assert cyto["data"]["id"] == m.id
+    assert cyto["data"]["type"] == "MACAddress"
+    assert cyto["data"]["oui"] == "00:1B:63"
+
+    assert ENTITY_CLASSES["MACAddress"] is MACAddress
+    instance = ENTITY_CLASSES["MACAddress"](value="00-1B-63-AA-BB-CC")
+    assert isinstance(instance, MACAddress)
+    # OUI normalizado para XX:XX:XX.
+    assert instance.properties["oui"] == "00:1B:63"
 
 
 def test_url_entity():

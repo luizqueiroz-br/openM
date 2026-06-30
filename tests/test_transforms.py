@@ -3,7 +3,7 @@ from unittest.mock import patch
 
 import dns.resolver
 import openm.transforms  # noqa: F401 — dispara o @Transform.register em todos os transforms
-from openm.core.entity import BankAccount, Domain, Email, IPAddress, Person, URL
+from openm.core.entity import BankAccount, Device, Domain, Email, IPAddress, MACAddress, Person, URL
 from openm.transforms.fraud_email import CheckFraudEmailTransform
 from openm.transforms.resolve_ip import ResolveIPTransform
 from openm.transforms.shodan import ShodanTransform
@@ -5610,3 +5610,274 @@ def test_bic_service_branch_named():
 
     result = BICService.validate("BARCGB22001")
     assert result["branch_code"] == "001"
+
+
+# ========================================================================
+# MAC Vendor Transform
+# ========================================================================
+
+
+def test_mac_vendor_transform_device_with_mac_property():
+    """Device com propriedade mac -> MACAddress + Device vendor + edges."""
+    from openm.transforms.mac_vendor import MacVendorTransform
+
+    device = Device(value="iPhone-1234", properties={"mac": "00:1B:63:84:45:E6"})
+    transform = MacVendorTransform()
+    result = transform.run(device)
+
+    # 3 entities: Device enriquecido + MACAddress + vendor Device
+    assert len(result.entities) == 3
+
+    enriched = [e for e in result.entities if isinstance(e, Device) and e.id == device.id][0]
+    assert enriched.properties["mac_vendor"] == "Apple"
+    assert enriched.properties["mac_oui"] == "00:1B:63"
+    assert enriched.properties["mac_address_normalized"] == "00:1B:63:84:45:E6"
+    assert enriched.properties["mac_valid"] is True
+
+    mac_entity = [e for e in result.entities if isinstance(e, MACAddress)][0]
+    assert mac_entity.value == "00:1B:63:84:45:E6"
+    assert mac_entity.properties["oui"] == "00:1B:63"
+
+    vendor = [e for e in result.entities
+              if isinstance(e, Device) and e.properties.get("role") == "manufacturer"][0]
+    assert vendor.value == "Apple"
+    assert vendor.properties["oui"] == "00:1B:63"
+
+    # Edges: Device -> MACAddress (IDENTIFIED_BY), MACAddress -> vendor (MANUFACTURED_BY)
+    edge_types = [r["type"] for r in result.relationships]
+    assert "IDENTIFIED_BY" in edge_types
+    assert "MANUFACTURED_BY" in edge_types
+
+
+def test_mac_vendor_transform_mac_address_directly():
+    """MACAddress como input direto -> enriquecido + vendor."""
+    from openm.transforms.mac_vendor import MacVendorTransform
+
+    mac = MACAddress(value="3C:A9:F4:11:22:33")  # Intel
+    transform = MacVendorTransform()
+    result = transform.run(mac)
+
+    # 2 entities: MACAddress enriquecido + vendor Device
+    assert len(result.entities) == 2
+
+    enriched = [e for e in result.entities if isinstance(e, MACAddress)][0]
+    assert enriched.id == mac.id
+    assert enriched.properties["mac_vendor"] == "Intel"
+    assert enriched.properties["mac_oui"] == "3C:A9:F4"
+
+    vendor = [e for e in result.entities if isinstance(e, Device)][0]
+    assert vendor.value == "Intel"
+
+    # Apenas 1 edge: MACAddress -> vendor
+    assert len(result.relationships) == 1
+    assert result.relationships[0]["type"] == "MANUFACTURED_BY"
+
+
+def test_mac_vendor_transform_format_variations():
+    """MAC em formatos diferentes sao normalizados."""
+    from openm.transforms.mac_vendor import MacVendorTransform
+
+    transform = MacVendorTransform()
+
+    # Windows
+    device = Device(value="dev1", properties={"mac": "00-1B-63-84-45-E6"})
+    result = transform.run(device)
+    assert result.entities[0].properties["mac_vendor"] == "Apple"
+    assert result.entities[0].properties["mac_address_normalized"] == "00:1B:63:84:45:E6"
+
+    # Cisco
+    device = Device(value="dev2", properties={"mac": "001B.6384.45E6"})
+    result = transform.run(device)
+    assert result.entities[0].properties["mac_vendor"] == "Apple"
+
+    # Sem separador
+    device = Device(value="dev3", properties={"mac": "001B638445E6"})
+    result = transform.run(device)
+    assert result.entities[0].properties["mac_vendor"] == "Apple"
+
+
+def test_mac_vendor_transform_unknown_oui():
+    """MAC valido mas OUI nao na tabela -> vendor=None, sem vendor entity."""
+    from openm.transforms.mac_vendor import MacVendorTransform
+
+    device = Device(value="dev", properties={"mac": "FF:FF:FF:11:22:33"})
+    transform = MacVendorTransform()
+    result = transform.run(device)
+
+    enriched = result.entities[0]
+    assert enriched.properties["mac_valid"] is True
+    assert enriched.properties["mac_oui"] == "FF:FF:FF"
+    assert enriched.properties["mac_vendor"] is None
+    assert "oui_not_in_table" in enriched.properties["mac_errors"]
+
+    # Sem vendor entity quando OUI desconhecido.
+    vendors = [e for e in result.entities
+               if isinstance(e, Device) and e.properties.get("role") == "manufacturer"]
+    assert vendors == []
+
+
+def test_mac_vendor_transform_invalid_mac():
+    """MAC invalido -> enriched com mac_valid=False, sem entities extras."""
+    from openm.transforms.mac_vendor import MacVendorTransform
+
+    device = Device(value="dev", properties={"mac": "not-a-mac"})
+    transform = MacVendorTransform()
+    result = transform.run(device)
+
+    assert len(result.entities) == 1
+    enriched = result.entities[0]
+    assert enriched.properties["mac_valid"] is False
+    assert enriched.properties["mac_vendor"] is None
+    assert "invalid_format" in enriched.properties["mac_errors"]
+    assert result.relationships == []
+
+
+def test_mac_vendor_transform_device_without_mac():
+    """Device sem propriedade mac -> result vazio."""
+    from openm.transforms.mac_vendor import MacVendorTransform
+
+    device = Device(value="dev", properties={"serial": "ABC123"})
+    transform = MacVendorTransform()
+    result = transform.run(device)
+
+    assert result.entities == []
+    assert result.relationships == []
+
+
+def test_mac_vendor_transform_mac_address_property_alternative():
+    """Device usa propriedade alternativa 'mac_address' (alem de 'mac')."""
+    from openm.transforms.mac_vendor import MacVendorTransform
+
+    device = Device(value="dev", properties={"mac_address": "F0:F6:1C:11:22:33"})
+    transform = MacVendorTransform()
+    result = transform.run(device)
+
+    assert result.entities[0].properties["mac_vendor"] == "Google"
+
+
+def test_mac_vendor_transform_skips_unsupported_type():
+    """Domain nao e aceito -> result vazio."""
+    from openm.transforms.mac_vendor import MacVendorTransform
+
+    domain = Domain(value="example.com")
+    transform = MacVendorTransform()
+    result = transform.run(domain)
+
+    assert result.entities == []
+    assert result.relationships == []
+
+
+def test_mac_vendor_transform_registered():
+    """MacVendorTransform aparece no registry para Device e MACAddress."""
+    from openm.core.transform import TransformRegistry
+    from openm.transforms.mac_vendor import MacVendorTransform
+
+    assert TransformRegistry.get("mac_vendor_lookup") is MacVendorTransform
+
+    for supported in ("Device", "MACAddress"):
+        names = [t["name"] for t in TransformRegistry.list_for_type(supported)]
+        assert "mac_vendor_lookup" in names
+
+    for other_type in ("Email", "Domain", "IPAddress", "Person", "URL"):
+        assert "mac_vendor_lookup" not in [
+            t["name"] for t in TransformRegistry.list_for_type(other_type)
+        ]
+
+
+def test_mac_vendor_transform_preserves_existing_properties():
+    """Propriedades pre-existentes do Device sao preservadas."""
+    from openm.transforms.mac_vendor import MacVendorTransform
+
+    device = Device(
+        value="iPhone-1234",
+        properties={"mac": "00:1B:63:84:45:E6", "serial": "SN12345", "os": "iOS 17"},
+    )
+    transform = MacVendorTransform()
+    result = transform.run(device)
+
+    enriched = result.entities[0]
+    assert enriched.properties["serial"] == "SN12345"
+    assert enriched.properties["os"] == "iOS 17"
+    assert enriched.properties["mac_vendor"] == "Apple"
+
+
+# ========================================================================
+# MacVendorService — unit tests
+# ========================================================================
+
+
+def test_mac_vendor_service_normalize_formats():
+    """normalize() aceita todos os formatos comuns."""
+    from openm.services.mac_service import MacVendorService
+
+    assert MacVendorService.normalize("00:1B:63:84:45:E6") == "00:1B:63:84:45:E6"
+    assert MacVendorService.normalize("00-1B-63-84-45-E6") == "00:1B:63:84:45:E6"
+    assert MacVendorService.normalize("001B.6384.45E6") == "00:1B:63:84:45:E6"
+    assert MacVendorService.normalize("001B638445E6") == "00:1B:63:84:45:E6"
+    assert MacVendorService.normalize("00:1b:63:84:45:e6") == "00:1B:63:84:45:E6"
+
+
+def test_mac_vendor_service_normalize_invalid():
+    """normalize() retorna None para valores invalidos."""
+    from openm.services.mac_service import MacVendorService
+
+    assert MacVendorService.normalize("") is None
+    assert MacVendorService.normalize(None) is None
+    assert MacVendorService.normalize("not-a-mac") is None
+    assert MacVendorService.normalize("00:1B:63") is None  # 3 bytes
+    assert MacVendorService.normalize("00:1B:63:84:45:E6:AA") is None  # 7 bytes
+
+
+def test_mac_vendor_service_extract_oui():
+    """extract_oui() retorna os 3 primeiros bytes."""
+    from openm.services.mac_service import MacVendorService
+
+    assert MacVendorService.extract_oui("00:1B:63:84:45:E6") == "00:1B:63"
+    assert MacVendorService.extract_oui("3C:A9:F4:11:22:33") == "3C:A9:F4"
+    assert MacVendorService.extract_oui("invalid") is None
+
+
+def test_mac_vendor_service_lookup_known_vendors():
+    """lookup() identifica fabricantes conhecidos."""
+    from openm.services.mac_service import MacVendorService
+
+    assert MacVendorService.lookup("00:1B:63:84:45:E6")["vendor"] == "Apple"
+    assert MacVendorService.lookup("00:00:0C:11:22:33")["vendor"] == "Cisco Systems"
+    assert MacVendorService.lookup("3C:A9:F4:11:22:33")["vendor"] == "Intel"
+    assert MacVendorService.lookup("F0:F6:1C:11:22:33")["vendor"] == "Google"
+    assert MacVendorService.lookup("AC:63:BE:11:22:33")["vendor"] == "Amazon"
+
+
+def test_mac_vendor_service_lookup_invalid_mac():
+    """lookup() retorna valid=False para MAC invalido."""
+    from openm.services.mac_service import MacVendorService
+
+    result = MacVendorService.lookup("not-a-mac")
+    assert result["valid"] is False
+    assert "invalid_format" in result["errors"]
+
+
+def test_mac_vendor_service_known_vendor_count():
+    """Tabela cobre centenas de fabricantes."""
+    from openm.services.mac_service import MacVendorService
+
+    count = MacVendorService.known_vendor_count()
+    assert count > 500
+
+
+def test_mac_address_entity_extracts_oui():
+    """MACAddress entity extrai OUI no __init__."""
+    m = MACAddress(value="00:1B:63:84:45:E6")
+    assert m.properties.get("oui") == "00:1B:63"
+
+
+def test_mac_address_entity_handles_alternative_formats():
+    """MACAddress entity extrai OUI de varios formatos."""
+    assert MACAddress(value="00-1B-63-84-45-E6").properties.get("oui") == "00:1B:63"
+    assert MACAddress(value="001B.6384.45E6").properties.get("oui") == "00:1B:63"
+    assert MACAddress(value="001B638445E6").properties.get("oui") == "00:1B:63"
+
+
+def test_mac_address_entity_invalid_value_no_oui():
+    """MACAddress entity sem OUI quando value invalido."""
+    assert MACAddress(value="not-a-mac").properties.get("oui") is None
