@@ -240,6 +240,100 @@ const App = {
         else el.style.color = 'var(--text-dim)';
     },
 
+    // ─────────────────────────────────────────────────────────────────────
+    // Theme management (issue #126 — Design System & Theming)
+    // ─────────────────────────────────────────────────────────────────────
+
+    /**
+     * Apply stored theme from localStorage (or system preference on first visit).
+     * Called once during App.init() before bindTopbar().
+     * Sets data-theme attribute on <html> and updates the toggle button icon.
+     */
+    applyStoredTheme() {
+        const stored = localStorage.getItem('openm.theme');
+        const prefersLight = window.matchMedia &&
+            window.matchMedia('(prefers-color-scheme: light)').matches;
+        const theme = stored || (prefersLight ? 'light' : 'dark');
+        this.setTheme(theme, /* persist */ false);
+    },
+
+    /**
+     * Set the active theme.
+     * @param {'dark'|'light'} theme
+     * @param {boolean} persist — whether to write to localStorage
+     */
+    setTheme(theme, persist = true) {
+        const html = document.documentElement;
+        if (theme === 'light') {
+            html.setAttribute('data-theme', 'light');
+        } else {
+            html.removeAttribute('data-theme');
+        }
+        // Update the toggle button icon (moon for light→dark action, sun for dark→light)
+        const icon = document.getElementById('theme-icon');
+        if (icon) {
+            // fa-moon = "switch to dark" (current is light); fa-sun = "switch to light" (current is dark)
+            icon.className = theme === 'light' ? 'fa-solid fa-moon' : 'fa-solid fa-sun';
+        }
+        // Update aria-label for screen readers
+        const btn = document.getElementById('btn-theme');
+        if (btn) {
+            btn.setAttribute('aria-label',
+                theme === 'light' ? 'Mudar para tema escuro' : 'Mudar para tema claro');
+            btn.setAttribute('title',
+                theme === 'light' ? 'Tema escuro (Ctrl+Shift+T)' : 'Tema claro (Ctrl+Shift+T)');
+        }
+        if (persist) {
+            try {
+                localStorage.setItem('openm.theme', theme);
+            } catch (e) {
+                // localStorage may be unavailable (private mode, etc.) — silently ignore
+                console.warn('openm: localStorage unavailable, theme not persisted');
+            }
+        }
+        // Announce to screen reader users
+        if (typeof this.announce === 'function') {
+            this.announce(`Tema ${theme === 'light' ? 'claro' : 'escuro'} ativado`, 'polite');
+        }
+    },
+
+    /**
+     * Toggle between dark and light themes.
+     * Called from the topbar button click handler and the Ctrl+Shift+T shortcut.
+     */
+    toggleTheme() {
+        const current = document.documentElement.getAttribute('data-theme');
+        const next = current === 'light' ? 'dark' : 'light';
+        this.setTheme(next, /* persist */ true);
+    },
+
+    /**
+     * Bridge: react to system theme changes when user has NOT explicitly chosen.
+     * If localStorage has a value, the user's explicit choice wins.
+     * If not, follow the system.
+     */
+    watchSystemTheme() {
+        if (!window.matchMedia) return;
+        const mq = window.matchMedia('(prefers-color-scheme: light)');
+        // Modern API
+        if (mq.addEventListener) {
+            mq.addEventListener('change', (e) => {
+                const stored = localStorage.getItem('openm.theme');
+                if (!stored) {
+                    this.setTheme(e.matches ? 'light' : 'dark', false);
+                }
+            });
+        } else if (mq.addListener) {
+            // Legacy Safari < 14
+            mq.addListener((e) => {
+                const stored = localStorage.getItem('openm.theme');
+                if (!stored) {
+                    this.setTheme(e.matches ? 'light' : 'dark', false);
+                }
+            });
+        }
+    },
+
     async createEntity(type, value, options = {}) {
         try {
             const data = await OpenMAPI.createEntity(type, value);
@@ -687,6 +781,7 @@ const App = {
         document.getElementById('btn-save').addEventListener('click', () => this.saveInvestigation());
         document.getElementById('btn-export').addEventListener('click', () => this.exportGraph());
         document.getElementById('btn-import').addEventListener('click', () => this.importGraph());
+        document.getElementById('btn-theme').addEventListener('click', () => this.toggleTheme());
 
         document.getElementById('ov-fit').addEventListener('click', () => Graph.fit());
         document.getElementById('ov-relayout').addEventListener('click', () => Graph.relayout());
@@ -722,6 +817,10 @@ const App = {
             } else if ((e.ctrlKey || e.metaKey) && (e.key === 'y' || (e.key === 'z' && e.shiftKey))) {
                 e.preventDefault();
                 Graph.redo();
+            } else if ((e.ctrlKey || e.metaKey) && e.shiftKey && (e.key === 'T' || e.key === 't')) {
+                // Theme toggle (issue #126)
+                e.preventDefault();
+                this.toggleTheme();
             } else if (e.key === 'f' && !e.ctrlKey && !e.metaKey && document.activeElement.tagName !== 'INPUT') {
                 Graph.fit();
             } else if (e.key === 'Delete' && Graph.selected) {
@@ -759,6 +858,9 @@ const App = {
     },
 
     init() {
+        // Apply theme before rendering (prevents flash of wrong theme)
+        this.applyStoredTheme();
+        this.watchSystemTheme();
         Inspector.init();
         Palette.init();
         Graph.init('cy');
