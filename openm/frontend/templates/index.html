@@ -23,6 +23,7 @@
     <script src="{{ url_for('static', filename='vendor/cytoscape-edgehandles.js') }}"></script>
 
     <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/palette.css') }}">
 </head>
 <body>
     <!-- Skip links (issue #128 — WCAG 2.2 AA foundations) -->
@@ -304,6 +305,8 @@
     <script src="{{ url_for('static', filename='js/api.js') }}"></script>
     <script src="{{ url_for('static', filename='js/icons.js') }}"></script>
     <script src="{{ url_for('static', filename='js/permissions.js') }}"></script>
+    <script src="{{ url_for('static', filename='js/commands.js') }}"></script>
+    <script src="{{ url_for('static', filename='js/command-palette.js') }}"></script>
     <script src="{{ url_for('static', filename='js/modals.js') }}"></script>
     <script src="{{ url_for('static', filename='js/inspector.js') }}"></script>
     <script src="{{ url_for('static', filename='js/palette.js') }}"></script>
@@ -322,5 +325,76 @@
     <!-- ARIA live regions (issue #128 — WCAG 2.2 AA foundations) -->
     <div id="sr-status" class="sr-only" aria-live="polite" aria-atomic="true"></div>
     <div id="sr-alert" class="sr-only" aria-live="assertive" aria-atomic="true"></div>
+
+    <!-- Command Palette (issue #133) -->
+    <dialog id="command-palette" class="command-palette" aria-label="Paleta de comandos">
+      <form method="dialog" class="cp-form">
+        <div class="cp-search">
+          <i data-lucide="search" aria-hidden="true"></i>
+          <input type="text" id="cp-input" class="cp-input"
+                 placeholder="Digite um comando ou busca…"
+                 aria-label="Buscar comandos"
+                 aria-controls="cp-results" aria-autocomplete="list"
+                 aria-activedescendant="" autocomplete="off" spellcheck="false" />
+          <kbd class="cp-esc" aria-hidden="true">Esc</kbd>
+        </div>
+        <ul id="cp-results" class="cp-results" role="listbox" aria-label="Resultados"></ul>
+        <p id="cp-empty" class="cp-empty" hidden>Nenhum comando encontrado.</p>
+        <div id="cp-status" class="sr-only" aria-live="polite"></div>
+      </form>
+    </dialog>
+
+    <!-- Shortcuts overlay (issue #133) -->
+    <dialog id="shortcuts-overlay" class="shortcuts-overlay" aria-label="Atalhos de teclado">
+      <form method="dialog" class="so-form">
+        <header class="so-header">
+          <h2 class="so-title">Atalhos de teclado</h2>
+          <button type="button" class="btn icon" id="so-close" aria-label="Fechar atalhos">
+            <i data-lucide="x" aria-hidden="true"></i>
+          </button>
+        </header>
+        <div class="so-body">
+          <p class="so-hint">Pressione <kbd>?</kbd> a qualquer momento para abrir esta tela.</p>
+          <div class="so-grid">
+            <!-- Preenchido por JS: 4 colunas × N linhas de atalhos -->
+            <div class="so-section">
+              <h3 class="so-section-title">Global</h3>
+              <dl class="so-list">
+                <div class="so-item"><dt><kbd>Ctrl/Cmd</kbd>+<kbd>K</kbd></dt><dd>Abrir paleta de comandos</dd></div>
+                <div class="so-item"><dt><kbd>?</kbd></dt><dd>Abrir esta tela</dd></div>
+                <div class="so-item"><dt><kbd>Esc</kbd></dt><dd>Fechar overlay/palette</dd></div>
+              </dl>
+            </div>
+            <div class="so-section">
+              <h3 class="so-section-title">Navegação</h3>
+              <dl class="so-list">
+                <div class="so-item"><dt><kbd>Ctrl/Cmd</kbd>+<kbd>1</kbd>–<kbd>4</kbd></dt><dd>Trocar aba da sidebar</dd></div>
+                <div class="so-item"><dt><kbd>Ctrl/Cmd</kbd>+<kbd>B</kbd></dt><dd>Alternar sidebar</dd></div>
+                <div class="so-item"><dt><kbd>Ctrl/Cmd</kbd>+<kbd>I</kbd></dt><dd>Alternar inspector</dd></div>
+                <div class="so-item"><dt><kbd>Ctrl/Cmd</kbd>+<kbd>F</kbd></dt><dd>Painel de busca</dd></div>
+              </dl>
+            </div>
+            <div class="so-section">
+              <h3 class="so-section-title">Grafo</h3>
+              <dl class="so-list">
+                <div class="so-item"><dt><kbd>F</kbd></dt><dd>Ajustar grafo à tela</dd></div>
+                <div class="so-item"><dt><kbd>Ctrl/Cmd</kbd>+<kbd>Z</kbd></dt><dd>Desfazer</dd></div>
+                <div class="so-item"><dt><kbd>Ctrl/Cmd</kbd>+<kbd>Shift</kbd>+<kbd>Z</kbd></dt><dd>Refazer</dd></div>
+                <div class="so-item"><dt><kbd>Del</kbd></dt><dd>Excluir seleção</dd></div>
+              </dl>
+            </div>
+            <div class="so-section">
+              <h3 class="so-section-title">Tema &amp; Investigação</h3>
+              <dl class="so-list">
+                <div class="so-item"><dt><kbd>Ctrl/Cmd</kbd>+<kbd>Shift</kbd>+<kbd>T</kbd></dt><dd>Alternar tema claro/escuro</dd></div>
+                <div class="so-item"><dt><kbd>Ctrl/Cmd</kbd>+<kbd>S</kbd></dt><dd>Salvar investigação</dd></div>
+                <div class="so-item"><dt><kbd>Ctrl/Cmd</kbd>+<kbd>Shift</kbd>+<kbd>R</kbd></dt><dd>Re-rodar último transform</dd></div>
+                <div class="so-item"><dt><kbd>Tab</kbd></dt><dd>Navegar entre nodes no canvas</dd></div>
+              </dl>
+            </div>
+          </div>
+        </div>
+      </form>
+    </dialog>
 </body>
 </html>
