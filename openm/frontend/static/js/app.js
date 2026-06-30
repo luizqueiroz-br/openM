@@ -331,6 +331,31 @@ const App = {
         this.setTheme(theme, /* persist */ false);
     },
 
+    // ─────────────────────────────────────────────────────────────────────
+    // Responsive helpers (issue #132 — Lane 3 / JS)
+    // Centraliza a detecção de viewport para todas as decisões de layout.
+    // Breakpoints: tablet <=1024, mobile <=768 (alinhados com style.css).
+    // ─────────────────────────────────────────────────────────────────────
+
+    /**
+     * @returns {boolean} true se a viewport é mobile (max-width 768px).
+     * Usado para decidir se elementos `.mobile-only` devem ser exibidos
+     * e se o canvas deve caber na tela sem scroll lateral.
+     */
+    _isMobile() {
+        return window.matchMedia('(max-width: 768px)').matches;
+    },
+
+    /**
+     * @returns {boolean} true se a viewport é tablet ou menor (max-width 1024px).
+     * Usado para decidir se as sidebars devem virar drawers (overlays
+     * deslizantes) e se atalhos de toggle (Cmd+B / Cmd+I) devem usar a
+     * lógica mobile-first.
+     */
+    _isTablet() {
+        return window.matchMedia('(max-width: 1024px)').matches;
+    },
+
     /**
      * Set the active theme.
      * @param {'dark'|'light'} theme
@@ -379,6 +404,136 @@ const App = {
         const current = document.documentElement.getAttribute('data-theme');
         const next = current === 'light' ? 'dark' : 'light';
         this.setTheme(next, /* persist */ true);
+    },
+
+    // ─────────────────────────────────────────────────────────────────────
+    // Responsive drawers (issue #132 — Lane 3 / JS)
+    // Em <=1024px, as sidebars (`#palette` e `#inspector`) saem do grid
+    // CSS e viram drawers deslizantes com overlay. Em desktop, o CSS
+    // já as mantém no grid — `toggleSidebar`/`toggleInspector` apenas
+    // sincronizam aria-hidden e estado interno (idempotente).
+    // ─────────────────────────────────────────────────────────────────────
+
+    /**
+     * Abre/fecha a sidebar esquerda (#palette) como drawer mobile.
+     * @param {boolean} [forceState] — true abre, false fecha, undefined alterna.
+     */
+    toggleSidebar(forceState) {
+        const sidebar = document.getElementById('palette');
+        const overlay = document.getElementById('sidebar-overlay');
+        if (!sidebar) return;
+        const isOpen = sidebar.classList.contains('open');
+        const nextState = (typeof forceState === 'boolean') ? forceState : !isOpen;
+
+        // Sincroniza classes: .open controla a transição CSS (transform).
+        // A classe .sidebar-drawer só é adicionada em <=1024px; em desktop
+        // ela forçaria position:fixed e quebraria o grid layout. Por isso,
+        // mantemos o estado real do drawer sincronizado com .open apenas.
+        sidebar.classList.toggle('open', nextState);
+
+        if (this._isTablet()) {
+            // Em tablet/mobile: overlay + aria-hidden no canvas + classe drawer
+            sidebar.classList.add('sidebar-drawer');
+            if (overlay) overlay.classList.toggle('show', nextState);
+            const canvas = document.getElementById('canvas');
+            if (canvas) canvas.setAttribute('aria-hidden', nextState ? 'true' : 'false');
+        } else {
+            // Em desktop: garante que o drawer não tem classe/transform residuais
+            // (ex: usuário rotacionou o device de tablet para desktop).
+            sidebar.classList.remove('sidebar-drawer');
+            if (overlay) overlay.classList.remove('show');
+            const canvas = document.getElementById('canvas');
+            if (canvas) canvas.removeAttribute('aria-hidden');
+        }
+
+        // Atualiza aria-expanded/title do botão hamburger (id #btn-hamburger)
+        const hamburger = document.getElementById('btn-hamburger');
+        if (hamburger) {
+            hamburger.setAttribute('aria-expanded', nextState ? 'true' : 'false');
+            hamburger.setAttribute('title', nextState ? 'Fechar sidebar (Cmd+B)' : 'Abrir sidebar (Cmd+B)');
+        }
+
+        // cy.resize() após a transição CSS (250ms) para recalcular viewport
+        // do Cytoscape. Sem isso, o canvas pode ficar com tamanho errado
+        // até a próxima interação.
+        if (typeof cy !== 'undefined' && cy) {
+            setTimeout(() => { try { cy.resize(); } catch (e) { /* cy disposed */ } }, 250);
+        }
+
+        // Move foco para o primeiro elemento focável dentro do drawer
+        // (skip-link não conta) — UX keyboard-first em mobile.
+        if (nextState) {
+            setTimeout(() => {
+                const focusable = sidebar.querySelector(
+                    'input, button, select, textarea, [tabindex]:not([tabindex="-1"])',
+                );
+                if (focusable) focusable.focus();
+            }, 260);
+        }
+
+        // Anúncio para screen readers (issue #128 — WCAG aria-live)
+        this.announce(nextState ? 'Sidebar aberta' : 'Sidebar fechada', 'polite');
+    },
+
+    /**
+     * Abre/fecha o inspector direito (#inspector) como drawer mobile.
+     * Paralelo a toggleSidebar — mesma lógica, alvo diferente.
+     * @param {boolean} [forceState] — true abre, false fecha, undefined alterna.
+     */
+    toggleInspector(forceState) {
+        const inspector = document.getElementById('inspector');
+        const overlay = document.getElementById('inspector-overlay');
+        if (!inspector) return;
+        const isOpen = inspector.classList.contains('open');
+        const nextState = (typeof forceState === 'boolean') ? forceState : !isOpen;
+
+        inspector.classList.toggle('open', nextState);
+
+        if (this._isTablet()) {
+            inspector.classList.add('sidebar-drawer-right');
+            if (overlay) overlay.classList.toggle('show', nextState);
+            const canvas = document.getElementById('canvas');
+            if (canvas) canvas.setAttribute('aria-hidden', nextState ? 'true' : 'false');
+        } else {
+            inspector.classList.remove('sidebar-drawer-right');
+            if (overlay) overlay.classList.remove('show');
+            const canvas = document.getElementById('canvas');
+            if (canvas) canvas.removeAttribute('aria-hidden');
+        }
+
+        // Atualiza aria-pressed/title do botão inspector (#btn-toggle-inspector)
+        const btn = document.getElementById('btn-toggle-inspector');
+        if (btn) {
+            btn.setAttribute('aria-pressed', nextState ? 'true' : 'false');
+            btn.setAttribute('aria-expanded', nextState ? 'true' : 'false');
+            btn.setAttribute('title', nextState ? 'Fechar inspector (Cmd+I)' : 'Alternar inspector (Cmd+I)');
+        }
+
+        if (typeof cy !== 'undefined' && cy) {
+            setTimeout(() => { try { cy.resize(); } catch (e) { /* cy disposed */ } }, 250);
+        }
+
+        if (nextState) {
+            setTimeout(() => {
+                const focusable = inspector.querySelector(
+                    'input, button, select, textarea, [tabindex]:not([tabindex="-1"])',
+                );
+                if (focusable) focusable.focus();
+            }, 260);
+        }
+
+        this.announce(nextState ? 'Inspector aberto' : 'Inspector fechado', 'polite');
+    },
+
+    /**
+     * Fecha ambos os drawers (sidebar + inspector).
+     * Usado pelo ESC, por clique no overlay, e pelo listener de resize
+     * quando o viewport volta para desktop (evita drawer "preso" aberto
+     * após rotação de tablet).
+     */
+    closeAllDrawers() {
+        this.toggleSidebar(false);
+        this.toggleInspector(false);
     },
 
     /**
@@ -898,6 +1053,63 @@ const App = {
         document.getElementById('inv-status-filter')?.addEventListener('change', () => this.loadInvestigations());
         document.getElementById('inv-sort')?.addEventListener('change', () => this.loadInvestigations());
 
+        // ────────────────────────────────────────────────────────────────
+        // Responsive drawers (issue #132 — Lane 3 / JS)
+        // Conecta botões hamburger/inspector, overlays e tap no canvas
+        // aos métodos toggleSidebar/toggleInspector. Em desktop (>1024px)
+        // os botões `.mobile-only` estão hidden via CSS, mas o listener
+        // é inofensivo (chama toggleSidebar que detecta viewport).
+        // ────────────────────────────────────────────────────────────────
+
+        // Botão hamburger (esquerda)
+        const btnHamburger = document.getElementById('btn-hamburger');
+        if (btnHamburger) {
+            btnHamburger.addEventListener('click', () => this.toggleSidebar());
+        }
+
+        // Botão toggle inspector (direita) — topbar mobile
+        const btnToggleInspector = document.getElementById('btn-toggle-inspector');
+        if (btnToggleInspector) {
+            btnToggleInspector.addEventListener('click', () => this.toggleInspector());
+        }
+
+        // Overlays (backdrop dos drawers) — clique fecha
+        const sidebarOverlay = document.getElementById('sidebar-overlay');
+        const inspectorOverlay = document.getElementById('inspector-overlay');
+        if (sidebarOverlay) {
+            sidebarOverlay.addEventListener('click', () => this.closeAllDrawers());
+        }
+        if (inspectorOverlay) {
+            inspectorOverlay.addEventListener('click', () => this.closeAllDrawers());
+        }
+
+        // Tap no canvas Cytoscape fecha drawers em tablet/mobile.
+        // Só em <=1024px: em desktop o canvas é a área principal e fechar
+        // drawers ao clicar seria incorreto (eles já estão no grid).
+        // Guard para cy não estar inicializado (ordem de scripts defensiva).
+        if (typeof cy !== 'undefined' && cy && typeof cy.on === 'function') {
+            cy.on('tap', () => {
+                if (this._isTablet()) this.closeAllDrawers();
+            });
+        }
+
+        // ESC fecha drawers (separado do listener de atalhos para garantir
+        // que sempre funcione, mesmo se o foco estiver em input/textarea).
+        // Issue #128: graph.js já trata ESC para limpar seleção — aqui
+        // verificamos primeiro se há drawer aberto antes de devolver
+        // controle pro listener de graph.js.
+        document.addEventListener('keydown', (e) => {
+            if (e.key === 'Escape') {
+                const sidebarOpen = document.getElementById('palette')?.classList.contains('open');
+                const inspectorOpen = document.getElementById('inspector')?.classList.contains('open');
+                if (sidebarOpen || inspectorOpen) {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    this.closeAllDrawers();
+                }
+            }
+        });
+
         // Keyboard shortcuts
         document.addEventListener('keydown', (e) => {
             if (e.ctrlKey || e.metaKey) {
@@ -952,6 +1164,20 @@ const App = {
                         if (window.TransformHub && typeof window.TransformHub.runLastTransform === 'function') {
                             setTimeout(() => window.TransformHub.runLastTransform(), 100);
                         }
+                        return;
+                    }
+                    // Issue #132: atalho Cmd/Ctrl+B — toggle sidebar (esquerda).
+                    // Conflita com bookmark do Chrome (Cmd+B) — aceitamos o trade-off
+                    // porque em contexto da app o usuário raramente quer bookmarks.
+                    if (e.key === 'b' || e.key === 'B') {
+                        e.preventDefault();
+                        this.toggleSidebar();
+                        return;
+                    }
+                    // Issue #132: atalho Cmd/Ctrl+I — toggle inspector (direita).
+                    if (e.key === 'i' || e.key === 'I') {
+                        e.preventDefault();
+                        this.toggleInspector();
                         return;
                     }
                 }
@@ -1012,6 +1238,38 @@ const App = {
             window.TransformHub.init();
         }
         this.bindTopbar();
+
+        // ────────────────────────────────────────────────────────────────
+        // Responsive resize listener (issue #132 — Lane 3 / JS)
+        // Debounce de 200ms para evitar storms de cy.resize() enquanto
+        // o usuário arrasta a janela. Após o debounce:
+        //   1. cy.resize() — Cytoscape recalcula viewport/dimensions
+        //   2. Graph.fit() — se houver nodes, recentraliza o grafo
+        //   3. closeAllDrawers() em desktop — evita drawer "preso" aberto
+        //      após rotação de tablet (viewport cruzou o breakpoint).
+        // Guard `typeof cy !== 'undefined'` cobre ordem defensiva de scripts.
+        // ────────────────────────────────────────────────────────────────
+        let resizeTimer = null;
+        window.addEventListener('resize', () => {
+            clearTimeout(resizeTimer);
+            resizeTimer = setTimeout(() => {
+                if (typeof cy !== 'undefined' && cy) {
+                    try {
+                        cy.resize();
+                        if (cy.elements().length > 0) {
+                            Graph.fit();
+                        }
+                    } catch (e) {
+                        // cy disposed ou DOM em estado inválido — silencioso
+                    }
+                }
+                // Em desktop, force fechar drawers mobile.
+                if (!this._isTablet()) {
+                    this.closeAllDrawers();
+                }
+            }, 200);
+        });
+
         this.loadInvestigations();
         this.loadKeyServices();
         this.loadKeys();

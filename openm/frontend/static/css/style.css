@@ -1669,6 +1669,21 @@ label {
     }
 }
 
+/* === Responsive: helper classes (issue #132 — Lane 3 / JS) ===
+   `.mobile-only` esconde um elemento em desktop e exibe em <=1024px.
+   Usado pelos botões #btn-hamburger e #btn-toggle-inspector que só fazem
+   sentido em viewport mobile/tablet (em desktop, o grid CSS já mostra
+   ambas as sidebars permanentemente). */
+.mobile-only {
+    display: none;
+}
+
+@media (max-width: 1024px) {
+    .mobile-only {
+        display: inline-flex;
+    }
+}
+
 /* LGPD / consent banner (se existir) — fullscreen em mobile */
 @media (max-width: 480px) {
     .lgpd,
