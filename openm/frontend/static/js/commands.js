@@ -232,6 +232,14 @@
             run: () => runIf(() => window.App && window.App.exportGraph(), 'Exportar grafo'),
         },
         {
+            id: 'graph.export-png',
+            label: 'Exportar grafo como PNG',
+            hint: 'Baixa uma imagem PNG do grafo atual',
+            category: 'Grafo',
+            icon: 'image',
+            run: () => runIf(() => window.Graph && typeof window.Graph.exportPng === 'function' && window.Graph.exportPng(), 'Exportar PNG'),
+        },
+        {
             id: 'graph.import',
             label: 'Importar grafo',
             hint: 'Carrega JSON e substitui o canvas',

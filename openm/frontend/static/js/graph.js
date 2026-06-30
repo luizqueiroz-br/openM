@@ -13,8 +13,21 @@
 // Registra plugins do Cytoscape.
 if (typeof cytoscape !== 'undefined') {
     if (typeof cytoscapeCoseBilkent !== 'undefined') cytoscape.use(cytoscapeCoseBilkent);
+    if (typeof cytoscapeFcose !== 'undefined') cytoscape.use(cytoscapeFcose);
     if (typeof cytoscapeCxtmenu !== 'undefined') cytoscape.use(cytoscapeCxtmenu);
     if (typeof cytoscapeEdgehandles !== 'undefined') cytoscape.use(cytoscapeEdgehandles);
+    if (typeof cytoscapeNavigator !== 'undefined') cytoscape.use(cytoscapeNavigator);
+}
+
+// Issue #123: feature-detect WebGL2/WebGL para opt-in via localStorage.
+// Default OFF — risco Safari 15.4 + bug com background-image SVG inline.
+function _supportsWebGL2() {
+    try {
+        const c = document.createElement('canvas');
+        return !!(c.getContext('webgl2') || c.getContext('webgl'));
+    } catch (_) {
+        return false;
+    }
 }
 
 let cy = null;
@@ -24,10 +37,20 @@ const redoStack = [];
 
 const Graph = {
     selected: null,
+    _layoutEngine: 'cose-bilkent', // Issue #123: 'cose-bilkent' (default) | 'fcose'
+    _navigator: null,              // Cytoscape Navigator instance (issue #123)
 
     init(containerId) {
         const container = document.getElementById(containerId);
         if (!container) return null;
+
+        // Issue #123: WebGL opt-in. Default OFF — usuário habilita via
+        // localStorage.setItem('openm:webgl','on'). Bloqueado em Safari 15.0-15.3
+        // por bug conhecido com background-image SVG inline.
+        const useWebGL = _supportsWebGL2()
+            && (typeof localStorage !== 'undefined'
+                && localStorage.getItem('openm:webgl') === 'on')
+            && !/Safari.*15\.[0-3]/.test(navigator.userAgent || '');
 
         cy = cytoscape({
             container: container,
@@ -36,11 +59,15 @@ const Graph = {
             wheelSensitivity: 0.2,
             boxSelectionEnabled: true,
             style: this._buildStyle(),
+            // Issue #123: opt-in WebGL renderer; default é canvas para compatibilidade.
+            renderer: { name: 'canvas', webgl: useWebGL },
         });
 
         this._initEdgehandles();
         this._initContextMenu();
         this._initEvents();
+        this._initNavigator();   // Issue #123: mini-mapa
+        this._initKeyboardNav(); // Issue #123: shortcuts +/-, setas, 0
 
         window.cy = cy;
         window.dispatchEvent(new CustomEvent('graph-ready'));
@@ -558,8 +585,22 @@ const Graph = {
 
     relayout() {
         if (!cy) return;
-        try {
-            cy.layout({
+        // Issue #123: switch entre cose-bilkent (default) e fcose via
+        // Graph.setLayoutEngine('fcose' | 'cose-bilkent'). Fallback para grid.
+        const useFcose = this._layoutEngine === 'fcose';
+        const layoutOpts = useFcose
+            ? {
+                name: 'fcose',
+                animate: true,
+                randomize: false,
+                fit: true,
+                padding: 40,
+                nodeRepulsion: 6000,
+                idealEdgeLength: 120,
+                nodeSeparation: 80,
+                quality: 'default',
+            }
+            : {
                 name: 'cose-bilkent',
                 animate: true,
                 randomize: false,
@@ -568,10 +609,16 @@ const Graph = {
                 componentSpacing: 100,
                 nodeRepulsion: 600000,
                 idealEdgeLength: 120,
-            }).run();
+            };
+        try {
+            cy.layout(layoutOpts).run();
         } catch (err) {
             console.warn('Layout falhou, usando grid:', err);
-            cy.layout({ name: 'grid', fit: true, padding: 40 }).run();
+            try {
+                cy.layout({ name: 'grid', fit: true, padding: 40 }).run();
+            } catch (err2) {
+                console.error('Layout grid também falhou:', err2);
+            }
         }
     },
 
@@ -763,6 +810,160 @@ const Graph = {
             frontier = next;
         }
         return visited;
+    },
+
+    // ========================================================================
+    // Issue #123: novos métodos — Navigator, keyboard, layout switch, PNG export
+    // ========================================================================
+
+    /**
+     * Inicializa o mini-mapa Cytoscape Navigator.
+     * Se o plugin não estiver registrado ou o container não existir, oculta o
+     * container (display: none) para não deixar overlay quebrado.
+     */
+    _initNavigator() {
+        const container = document.getElementById('cy-navigator');
+        if (!container) return;
+        if (!cy || typeof cy.navigator !== 'function') {
+            container.style.display = 'none';
+            return;
+        }
+        try {
+            this._navigator = cy.navigator({
+                container: '#cy-navigator',
+                viewLiveFramerate: 0, // desabilita redraw constante (issue #123)
+                thumbnailEventFramerate: 30,
+                dblClickDelay: 200,
+                removeCustomContainer: false,
+            });
+        } catch (err) {
+            console.warn('Navegador falhou ao inicializar:', err);
+            container.style.display = 'none';
+        }
+    },
+
+    /**
+     * Atalhos de teclado adicionais no canvas: + / - / setas / 0.
+     * - `+` ou `=`: zoom in centrado
+     * - `-`: zoom out centrado
+     * - `0`: fit
+     * - setas: pan em incrementos fixos
+     * Issue #123: descoberta rápida sem mouse.
+     */
+    _initKeyboardNav() {
+        const cyContainer = document.getElementById('cy');
+        if (!cyContainer || !cy) return;
+        cyContainer.addEventListener('keydown', (e) => {
+            if (document.activeElement !== cyContainer) return;
+            if (e.ctrlKey || e.metaKey || e.altKey) return;
+            if (!cy) return;
+
+            const PAN_STEP = 60;
+            if (e.key === '+' || e.key === '=') {
+                e.preventDefault();
+                cy.zoom({ level: cy.zoom() * 1.2, renderedPosition: { x: cy.width() / 2, y: cy.height() / 2 } });
+            } else if (e.key === '-' || e.key === '_') {
+                e.preventDefault();
+                cy.zoom({ level: cy.zoom() * 0.8, renderedPosition: { x: cy.width() / 2, y: cy.height() / 2 } });
+            } else if (e.key === '0') {
+                e.preventDefault();
+                this.fit();
+            } else if (e.key === 'ArrowLeft') {
+                e.preventDefault();
+                cy.panBy({ x: PAN_STEP, y: 0 });
+            } else if (e.key === 'ArrowRight') {
+                e.preventDefault();
+                cy.panBy({ x: -PAN_STEP, y: 0 });
+            } else if (e.key === 'ArrowUp') {
+                e.preventDefault();
+                cy.panBy({ x: 0, y: PAN_STEP });
+            } else if (e.key === 'ArrowDown') {
+                e.preventDefault();
+                cy.panBy({ x: 0, y: -PAN_STEP });
+            }
+        });
+    },
+
+    /**
+     * Troca o engine de layout. Aceita 'cose-bilkent' (default) ou 'fcose'.
+     * Issue #123: fcose é ~2× mais rápido para grafos grandes, mas pode ter
+     * resultado visual diferente.
+     */
+    setLayoutEngine(name) {
+        if (name !== 'cose-bilkent' && name !== 'fcose') {
+            console.warn('Engine inválido:', name);
+            return;
+        }
+        this._layoutEngine = name;
+        const label = name === 'fcose' ? 'fcose (rápido)' : 'cose-bilkent (padrão)';
+        if (window.App && typeof window.App.setStatus === 'function') {
+            window.App.setStatus(`Layout engine: ${label}.`, 'info');
+        }
+    },
+
+    /**
+     * Exporta o grafo atual como PNG. Usa `output: 'blob-promise'` para
+     * não bloquear a thread principal. Padrão de download idêntico ao
+     * `App.exportGraph()` (Blob → URL.createObjectURL → <a download> → revoke).
+     */
+    async exportPng() {
+        if (!cy) {
+            if (window.App && window.App.setStatus) {
+                window.App.setStatus('Grafo não inicializado.', 'error');
+            }
+            return;
+        }
+        if (typeof cy.png !== 'function') {
+            if (window.App && window.App.setStatus) {
+                window.App.setStatus('Export PNG indisponível nesta versão.', 'error');
+            }
+            return;
+        }
+        try {
+            const blob = await cy.png({
+                output: 'blob-promise',
+                bg: '#131826', // oklch fallback para bg do canvas (issue #126)
+                full: true,
+                scale: 2,
+                maxWidth: 4096,
+                maxHeight: 4096,
+            });
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = `openm-graph-${Date.now()}.png`;
+            document.body.appendChild(a);
+            a.click();
+            document.body.removeChild(a);
+            URL.revokeObjectURL(url);
+            if (window.App) {
+                if (typeof window.App.setStatus === 'function') {
+                    window.App.setStatus('PNG exportado.', 'success');
+                }
+                if (typeof window.App.announce === 'function') {
+                    window.App.announce('PNG exportado', 'polite');
+                }
+            }
+        } catch (err) {
+            console.error('Falha ao exportar PNG:', err);
+            if (window.App && typeof window.App.setStatus === 'function') {
+                window.App.setStatus('Falha ao exportar PNG: ' + (err && err.message || err), 'error');
+            }
+        }
+    },
+
+    /**
+     * Mostra/oculta o container do mini-mapa via classe .collapsed.
+     * O CSS já cuida de opacity/transform/pointer-events.
+     */
+    setNavigatorVisible(visible) {
+        const container = document.getElementById('cy-navigator');
+        if (!container) return;
+        if (visible) {
+            container.classList.remove('collapsed');
+        } else {
+            container.classList.add('collapsed');
+        }
     },
 };
 

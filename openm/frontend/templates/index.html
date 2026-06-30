@@ -19,6 +19,10 @@
 
     <!-- Cytoscape.js + plugins (locais para ordem determinística) -->
     <script src="{{ url_for('static', filename='vendor/cytoscape.min.js') }}"></script>
+    <!-- Issue #123: fcose + navigator (cose-base ANTES de fcose por ser peer-dep) -->
+    <script src="{{ url_for('static', filename='vendor/cose-base.js') }}"></script>
+    <script src="{{ url_for('static', filename='vendor/cytoscape-fcose.js') }}"></script>
+    <script src="{{ url_for('static', filename='vendor/cytoscape-navigator.js') }}"></script>
     <script src="{{ url_for('static', filename='vendor/cytoscape-cose-bilkent.js') }}"></script>
     <script src="{{ url_for('static', filename='vendor/cytoscape-cxtmenu.js') }}"></script>
     <script src="{{ url_for('static', filename='vendor/cytoscape-edgehandles.js') }}"></script>
@@ -60,6 +64,8 @@
                 <button class="btn icon" id="btn-save" title="Salvar investigação" data-roles="admin,analyst"><i data-lucide="save"></i></button>
                 <button class="btn icon" id="btn-export" title="Exportar JSON"><i data-lucide="download"></i></button>
                 <button class="btn icon" id="btn-import" title="Importar JSON" data-roles="admin,analyst"><i data-lucide="upload"></i></button>
+                <!-- Issue #123: PNG export -->
+                <button class="btn icon" id="btn-export-png" title="Exportar PNG do grafo" data-roles="admin,analyst"><i data-lucide="image"></i></button>
                 <!-- Inspector toggle (issue #132 — Lane 3 / JS) — visível só em <=1024px.
                      Abre o inspector direito como drawer mobile. -->
                 <button class="btn icon mobile-only" id="btn-toggle-inspector" type="button" title="Alternar inspector (Cmd+I)" aria-label="Abrir inspector de detalhes" aria-pressed="false" aria-expanded="false" aria-controls="inspector"><i data-lucide="panel-right" aria-hidden="true"></i></button>
@@ -222,6 +228,9 @@
                         <span id="node-count">0</span> nós
                     </div>
                 </div>
+
+                <!-- Mini-mapa Cytoscape Navigator (issue #123 — decorativo) -->
+                <div id="cy-navigator" class="cy-navigator-container" role="presentation" tabindex="-1" aria-hidden="true" aria-label="Mini-mapa do grafo (decorativo)"></div>
 
                 <!-- Graph Search & Filter Panel (issue #131) -->
                 <aside id="graph-search-panel" class="graph-search-panel collapsed" aria-label="Busca e filtro do grafo">

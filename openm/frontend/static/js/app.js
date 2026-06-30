@@ -1042,6 +1042,14 @@ const App = {
         document.getElementById('btn-save').addEventListener('click', () => this.saveInvestigation());
         document.getElementById('btn-export').addEventListener('click', () => this.exportGraph());
         document.getElementById('btn-import').addEventListener('click', () => this.importGraph());
+        // Issue #123: PNG export
+        document.getElementById('btn-export-png')?.addEventListener('click', () => {
+            if (window.Graph && typeof window.Graph.exportPng === 'function') {
+                window.Graph.exportPng();
+            } else {
+                this.setStatus('Export PNG indisponível.', 'error');
+            }
+        });
 
         // Sidebar tabs (issue #130)
         document.querySelectorAll('.sidebar-tab').forEach((tab) => {

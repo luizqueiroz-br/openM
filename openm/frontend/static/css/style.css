@@ -829,6 +829,34 @@ label {
     text-align: center;
 }
 
+/* Issue #123: Cytoscape Navigator (mini-mapa) */
+.cy-navigator-container {
+    position: absolute;
+    bottom: 1rem;
+    left: 1rem;
+    width: 200px;
+    height: 140px;
+    z-index: 9;
+    background: color-mix(in oklch, var(--bg-panel) 90%, transparent);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 4px;
+    backdrop-filter: blur(8px);
+    box-shadow: 0 4px 12px oklch(0% 0 0 / 0.3);
+    transition: opacity 0.2s, transform 0.2s;
+}
+.cy-navigator-container.collapsed {
+    opacity: 0;
+    transform: translateY(8px);
+    pointer-events: none;
+}
+@media (max-width: 768px) {
+    .cy-navigator-container { display: none; }
+}
+@media (prefers-reduced-motion: reduce) {
+    .cy-navigator-container { transition: none; }
+}
+
 /* ============================================================================
    Sidebar Tabs (issue #130 — Transform Hub)
    ============================================================================ */
