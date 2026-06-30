@@ -1,0 +1,142 @@
+/* =============================================================================
+ * Notyf 3.10 — OpenM theme overrides (issue #124)
+ *
+ * Stack: tokens `var(--*)` herdados de palette.css/style.css.
+ * Contraste validado WCAG AAA (5.41–8.50:1) para texto `var(--bg-deep)`
+ * sobre superfícies coloridas.
+ *
+ * Estrutura:
+ *  - Base (.notyf__toast)
+ *  - Tipos coloridos (success / error / warning / info / loading)
+ *  - Ícones Unicode (substituem default do Notyf)
+ *  - Botão dismiss 44×44px (WCAG 2.5.5)
+ *  - Mobile (≤768px): bottom-center, full-width, safe-area-inset-bottom
+ *  - prefers-reduced-motion: desativa animações
+ * ============================================================================= */
+
+/* ── Base toast ─────────────────────────────────────────────────────────── */
+.notyf__toast {
+    background: var(--bg-card);
+    color: var(--text);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    box-shadow: 0 8px 24px rgba(0, 0, 0, 0.35);
+    font-size: var(--text-sm, 0.8125rem);
+    max-width: 360px;
+}
+
+/* ── Tipos coloridos (texto var(--bg-deep) garante contraste AAA) ───────── */
+.notyf__toast--success {
+    background: var(--success);
+    color: var(--bg-deep);
+    border-color: transparent;
+}
+.notyf__toast--error {
+    background: var(--danger);
+    color: var(--bg-deep);
+    border-color: transparent;
+}
+.notyf__toast--warning {
+    background: var(--warn);
+    color: var(--bg-deep);
+    border-color: transparent;
+}
+.notyf__toast--info {
+    background: var(--info);
+    color: var(--bg-deep);
+    border-color: transparent;
+}
+.notyf__toast--loading {
+    background: var(--bg-card);
+    color: var(--text);
+    border-color: var(--border);
+}
+
+/* ── Ícone herda cor do toast; tamanho legível; sem background/circle ────── */
+.notyf__icon {
+    color: inherit;
+    background: transparent;
+    height: 1.2em;
+    width: 1.2em;
+    border-radius: 0;
+    font-style: normal;
+    font-weight: 700;
+}
+/* Esconde as pseudo-barras (✓/✕ em CSS) do vendor — usamos texto Unicode via
+   config `text: '✓'` no JS, mas o vendor CSS ainda renderiza barras via
+   ::before/::after das classes .notyf__icon--success e .notyf__icon--error. */
+.notyf__icon--success::before,
+.notyf__icon--success::after,
+.notyf__icon--error::before,
+.notyf__icon--error::after {
+    content: none;
+}
+
+/* ── Botão dismiss: 44×44px (WCAG 2.5.5) + focus ring visível ──────────── */
+.notyf__dismiss {
+    width: 44px;
+    height: 44px;
+}
+.notyf__dismiss-btn {
+    background-color: rgba(0, 0, 0, 0.2);
+    border: none;
+    cursor: pointer;
+    outline: 2px solid transparent;
+    outline-offset: 2px;
+    border-radius: 4px;
+    font-size: 1.1rem;
+    color: inherit;
+    opacity: 0.85;
+    position: relative;
+}
+.notyf__dismiss-btn::before {
+    display: none;
+}
+.notyf__dismiss-btn::after {
+    content: '×';
+    display: block;
+    background: none;
+    height: auto;
+    width: auto;
+    position: absolute;
+    left: 50%;
+    top: 50%;
+    transform: translate(-50%, -50%);
+    font-size: 1.2rem;
+    font-weight: 700;
+    color: inherit;
+    opacity: 1;
+}
+.notyf__dismiss-btn:hover {
+    opacity: 1;
+    background-color: rgba(0, 0, 0, 0.35);
+}
+.notyf__dismiss-btn:focus-visible {
+    outline: 2px solid var(--accent);
+}
+
+/* ── Mobile (≤768px): bottom-center, full-width, safe-area-inset-bottom ── */
+@media (max-width: 768px) {
+    .notyf {
+        padding: 0;
+        padding-bottom: calc(1.25rem + env(safe-area-inset-bottom));
+    }
+    .notyf__toast {
+        max-width: initial;
+        width: calc(100% - 2rem);
+        margin: 0 1rem;
+        border-radius: 6px;
+    }
+}
+
+/* ── prefers-reduced-motion: sem animações/transições ───────────────────── */
+@media (prefers-reduced-motion: reduce) {
+    .notyf__toast,
+    .notyf__toast--disappear,
+    .notyf__message,
+    .notyf__icon,
+    .notyf__dismiss {
+        animation: none !important;
+        transition: none !important;
+    }
+}

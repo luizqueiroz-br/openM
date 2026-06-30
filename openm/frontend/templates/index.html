@@ -30,6 +30,10 @@
     <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
     <link rel="stylesheet" href="{{ url_for('static', filename='css/palette.css') }}">
     <link rel="stylesheet" href="{{ url_for('static', filename='css/tour.css') }}">
+    <!-- Issue #124: Notyf 3.10 toast system — defaults + OpenM token overrides
+         Ordem importa: notyf.min.css (defaults) → style.css (tokens) → notyf.css (overrides). -->
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/notyf.min.css') }}">
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/notyf.css') }}">
 </head>
 <body>
     <!-- Skip links (issue #128 — WCAG 2.2 AA foundations) -->
@@ -315,6 +319,9 @@
     <!-- Scripts principais -->
     <script src="{{ url_for('static', filename='js/api.js') }}"></script>
     <script src="{{ url_for('static', filename='js/icons.js') }}"></script>
+    <!-- Issue #124: Notyf 3.10.0 toast system (MIT, 12.5KB raw / 3.6KB gzipped).
+         Carregado antes de app.js para que App.toast() encontre window.Notyf. -->
+    <script src="{{ url_for('static', filename='vendor/notyf.min.js') }}"></script>
     <script src="{{ url_for('static', filename='js/permissions.js') }}"></script>
     <script src="{{ url_for('static', filename='js/commands.js') }}"></script>
     <script src="{{ url_for('static', filename='js/command-palette.js') }}"></script>

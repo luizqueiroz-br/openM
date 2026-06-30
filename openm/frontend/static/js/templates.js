@@ -168,7 +168,7 @@
     async function openGallery() {
         const ready = await _waitWaReady('wa-dialog');
         if (!ready) {
-            if (window.App) window.App.setStatus('Componente de diálogo indisponível', 'error');
+            if (window.App) window.App.toast('error', 'Componente de diálogo indisponível');
             return;
         }
 
@@ -312,7 +312,7 @@
         if (!title) return; // usuário cancelou
 
         try {
-            if (window.App) window.App.setStatus('Criando investigation...', 'info');
+            if (window.App) window.App.toast('info', 'Criando investigation...');
 
             // 1) Cria investigation via API direta (não dependemos de
             //    App.createInvestigation que hoje lê do DOM — Lane 4B
@@ -347,10 +347,10 @@
                     'polite',
                 );
             }
-            if (window.App) window.App.setStatus(`✓ Investigation "${title.value}" criada`, 'success');
+            if (window.App) window.App.toast('success', `Investigation "${title.value}" criada`);
         } catch (err) {
             console.error('[OpenMTemplates] erro ao criar investigation:', err);
-            if (window.App) window.App.setStatus(err.message || 'Erro ao criar investigation', 'error');
+            if (window.App) window.App.toast('error', err.message || 'Erro ao criar investigation');
         }
     }
 
@@ -398,7 +398,7 @@
                         || defaultValue.trim();
                     const description = d.querySelector('#tpl-prompt-desc')?.value?.trim() || '';
                     if (!value) {
-                        if (window.App) window.App.setStatus('Título é obrigatório', 'error');
+                        if (window.App) window.App.toast('error', 'Título é obrigatório');
                         return;
                     }
                     cleanup();
