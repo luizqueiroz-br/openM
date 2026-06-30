@@ -2342,3 +2342,324 @@ wa-input, wa-select, wa-textarea {
         background: rgba(251, 191, 36, 0.12);
     }
 }
+
+/* ============================================================================
+   Inspector 3-tabs (issue #129 — Overview / Properties / Sightings)
+   ============================================================================ */
+
+/* Overview tab */
+.inspector-overview {
+    display: flex;
+    flex-direction: column;
+    gap: 0.75rem;
+    padding: 0.75rem 0;
+}
+
+.inspector-overview-header {
+    display: flex;
+    align-items: center;
+    gap: 0.6rem;
+}
+
+.inspector-overview-icon {
+    width: 40px;
+    height: 40px;
+    border-radius: var(--radius);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: var(--bg-deep);
+    flex-shrink: 0;
+}
+
+.inspector-overview-icon i,
+.inspector-overview-icon [data-lucide] {
+    width: 20px;
+    height: 20px;
+}
+
+.inspector-overview-meta {
+    flex: 1;
+    min-width: 0;
+}
+
+.inspector-overview-type {
+    font-size: var(--text-xs);
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    color: var(--text-faint);
+}
+
+.inspector-overview-value {
+    font-size: var(--text-md);
+    font-weight: 600;
+    color: var(--text);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.inspector-overview-id {
+    font-size: var(--text-xs);
+    font-family: var(--font-mono);
+    color: var(--text-faint);
+}
+
+.inspector-overview-badges {
+    display: flex;
+    gap: 0.4rem;
+    flex-wrap: wrap;
+}
+
+.inspector-badge {
+    font-size: 9px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    padding: 2px 6px;
+    border-radius: var(--radius-sm);
+    border: 1px solid currentColor;
+    line-height: 1;
+}
+
+.inspector-badge-transform { color: var(--accent); background: color-mix(in oklch, var(--accent) 12%, transparent); }
+.inspector-badge-manual { color: var(--text-faint); }
+.inspector-badge-flagged { color: var(--hot); background: color-mix(in oklch, var(--hot) 12%, transparent); }
+
+.inspector-overview-summary {
+    font-size: var(--text-sm);
+    color: var(--text-dim);
+    line-height: 1.5;
+    margin: 0;
+}
+
+.inspector-overview-actions {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 0.4rem;
+    margin-top: 0.4rem;
+}
+
+.inspector-overview-actions .btn {
+    min-height: 36px;
+    font-size: var(--text-xs);
+    gap: 0.3rem;
+}
+
+.inspector-overview-actions .btn i,
+.inspector-overview-actions .btn [data-lucide] {
+    width: 14px;
+    height: 14px;
+}
+
+/* Properties tab */
+.inspector-properties {
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+}
+
+.inspector-search-bar {
+    position: relative;
+    display: flex;
+    align-items: center;
+}
+
+.inspector-search-bar i,
+.inspector-search-bar [data-lucide] {
+    position: absolute;
+    left: 0.6rem;
+    color: var(--text-faint);
+    pointer-events: none;
+    width: 14px;
+    height: 14px;
+}
+
+.inspector-search-bar input {
+    width: 100%;
+    padding: 0.4rem 0.6rem 0.4rem 2rem;
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    color: var(--text);
+    font-size: var(--text-xs);
+    min-height: 32px;
+}
+
+.inspector-search-bar input::placeholder {
+    color: var(--text-faint);
+}
+
+.inspector-props-list {
+    max-height: 300px;
+    overflow-y: auto;
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+}
+
+/* Sightings tab */
+.inspector-sightings-container {
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+}
+
+.sightings-filters {
+    display: flex;
+    gap: 4px;
+    border-bottom: 1px solid var(--border);
+    padding-bottom: 0.4rem;
+    flex-wrap: wrap;
+}
+
+.sighting-filter {
+    background: transparent;
+    border: 1px solid var(--border);
+    border-radius: var(--radius-full);
+    padding: 0.25rem 0.6rem;
+    font-size: var(--text-xs);
+    color: var(--text-dim);
+    cursor: pointer;
+    transition: all var(--duration-fast) var(--ease-out);
+    min-height: 28px;
+}
+
+.sighting-filter:hover {
+    background: var(--bg-card-hover);
+    color: var(--text);
+}
+
+.sighting-filter.active {
+    background: var(--accent-soft, color-mix(in oklch, var(--accent) 15%, transparent));
+    border-color: var(--accent);
+    color: var(--accent);
+    font-weight: 600;
+}
+
+.sighting-filter:focus-visible {
+    outline: 2px solid var(--accent);
+    outline-offset: 2px;
+}
+
+.sightings-list {
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+    max-height: 400px;
+    overflow-y: auto;
+}
+
+.sighting {
+    display: flex;
+    gap: 0.6rem;
+    padding: 0.6rem;
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    border-left: 3px solid var(--border);
+    transition: border-color var(--duration-fast) var(--ease-out);
+}
+
+.sighting-type-transform { border-left-color: var(--accent); }
+.sighting-type-create { border-left-color: var(--success); }
+.sighting-type-update { border-left-color: var(--warn); }
+.sighting-type-delete { border-left-color: var(--danger); }
+
+.sighting-icon {
+    width: 28px;
+    height: 28px;
+    flex-shrink: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    border-radius: var(--radius-sm);
+    background: var(--bg-panel);
+    color: var(--text-dim);
+}
+
+.sighting-icon i,
+.sighting-icon [data-lucide] {
+    width: 14px;
+    height: 14px;
+}
+
+.sighting-type-transform .sighting-icon { color: var(--accent); }
+.sighting-type-create .sighting-icon { color: var(--success); }
+.sighting-type-update .sighting-icon { color: var(--warn); }
+.sighting-type-delete .sighting-icon { color: var(--danger); }
+
+.sighting-body {
+    flex: 1;
+    min-width: 0;
+}
+
+.sighting-title {
+    font-size: var(--text-sm);
+    font-weight: 600;
+    color: var(--text);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.sighting-subtitle {
+    font-size: var(--text-xs);
+    color: var(--text-dim);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    margin-top: 2px;
+}
+
+.sighting-subtitle .sighting-duration,
+.sighting-subtitle .sighting-counts {
+    color: var(--text-faint);
+    font-family: var(--font-mono);
+    margin-left: 4px;
+    font-size: 10px;
+}
+
+.sighting-meta {
+    display: flex;
+    justify-content: space-between;
+    margin-top: 0.4rem;
+    font-size: 10px;
+    color: var(--text-faint);
+}
+
+.sighting-actor {
+    font-family: var(--font-mono);
+}
+
+.sighting-when {
+    font-style: italic;
+}
+
+.sighting-skeleton,
+.sighting-empty {
+    padding: 0.8rem;
+    text-align: center;
+    font-size: var(--text-xs);
+    color: var(--text-faint);
+    background: var(--bg-card);
+    border: 1px dashed var(--border);
+    border-radius: var(--radius);
+}
+
+.sighting-empty {
+    border-style: solid;
+}
+
+/* Fallback para browsers sem suporte a color-mix */
+@supports not (color: color-mix(in oklch, red, blue)) {
+    .inspector-badge-transform {
+        background: rgba(56, 189, 248, 0.12);
+    }
+    .inspector-badge-flagged {
+        background: rgba(244, 114, 182, 0.12);
+    }
+    .sighting-filter.active {
+        background: rgba(56, 189, 248, 0.15);
+    }
+}
