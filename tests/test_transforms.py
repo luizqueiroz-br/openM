@@ -3,7 +3,7 @@ from unittest.mock import patch
 
 import dns.resolver
 import openm.transforms  # noqa: F401 — dispara o @Transform.register em todos os transforms
-from openm.core.entity import Domain, Email, IPAddress, Person, URL
+from openm.core.entity import BankAccount, Domain, Email, IPAddress, Person, URL
 from openm.transforms.fraud_email import CheckFraudEmailTransform
 from openm.transforms.resolve_ip import ResolveIPTransform
 from openm.transforms.shodan import ShodanTransform
@@ -5282,3 +5282,331 @@ def test_person_domain_extract_from_email():
     # Multiplos @ sao rejeitados: a parte apos o primeiro @ nao pode
     # conter outro @ (rejeitado pelo helper).
     assert _extract_domain_from_email("double@@at.com") == ""
+
+
+# ========================================================================
+# IBAN/SWIFT Validation Transform
+# ========================================================================
+
+
+def test_iban_swift_transform_iban_valid_gb():
+    """IBAN valido do Reino Unido -> enriquecido como iban."""
+    from openm.transforms.iban_swift import IbanSwiftTransform
+
+    ba = BankAccount(value="GB29NWBK60161331926819")
+    transform = IbanSwiftTransform()
+    result = transform.run(ba)
+
+    assert len(result.entities) == 1
+    enriched = result.entities[0]
+    assert enriched.id == ba.id
+    assert enriched.properties["bank_account_valid"] is True
+    assert enriched.properties["bank_account_type"] == "iban"
+    assert enriched.properties["bank_account_country_code"] == "GB"
+    assert enriched.properties["bank_account_formatted"] == "GB29 NWBK 6016 1331 9268 19"
+    assert enriched.properties["bank_account_metadata"]["iban_check_digits"] == "29"
+    assert enriched.properties["bank_account_checked_at"]
+    assert result.relationships == []
+
+
+def test_iban_swift_transform_iban_valid_de():
+    """IBAN alemao valido."""
+    from openm.transforms.iban_swift import IbanSwiftTransform
+
+    ba = BankAccount(value="DE89370400440532013000")
+    transform = IbanSwiftTransform()
+    result = transform.run(ba)
+
+    enriched = result.entities[0]
+    assert enriched.properties["bank_account_valid"] is True
+    assert enriched.properties["bank_account_country_code"] == "DE"
+    assert enriched.properties["bank_account_formatted"] == "DE89 3704 0044 0532 0130 00"
+
+
+def test_iban_swift_transform_iban_valid_br():
+    """IBAN brasileiro valido (29 chars)."""
+    from openm.transforms.iban_swift import IbanSwiftTransform
+
+    ba = BankAccount(value="BR9700360305000010009795493P1")
+    transform = IbanSwiftTransform()
+    result = transform.run(ba)
+
+    enriched = result.entities[0]
+    assert enriched.properties["bank_account_valid"] is True
+    assert enriched.properties["bank_account_country_code"] == "BR"
+    assert len(enriched.properties["bank_account_formatted"].replace(" ", "")) == 29
+
+
+def test_iban_swift_transform_iban_invalid_checksum():
+    """IBAN com checksum errado -> valid=False."""
+    from openm.transforms.iban_swift import IbanSwiftTransform
+
+    ba = BankAccount(value="GB29NWBK60161331926820")
+    transform = IbanSwiftTransform()
+    result = transform.run(ba)
+
+    enriched = result.entities[0]
+    assert enriched.properties["bank_account_valid"] is False
+    assert enriched.properties["bank_account_type"] == "iban"
+    # Quando checksum falha, bban_re nao casa -> iban_format fica {}.
+    meta = enriched.properties["bank_account_metadata"]
+    assert meta.get("iban_format") == {} or "checksum_invalid" in str(meta)
+
+
+def test_iban_swift_transform_iban_invalid_length():
+    """IBAN com comprimento errado -> valid=False."""
+    from openm.transforms.iban_swift import IbanSwiftTransform
+
+    ba = BankAccount(value="DE8937040044")
+    transform = IbanSwiftTransform()
+    result = transform.run(ba)
+
+    enriched = result.entities[0]
+    assert enriched.properties["bank_account_valid"] is False
+    assert enriched.properties["bank_account_type"] == "iban"
+
+
+def test_iban_swift_transform_bic8_valid():
+    """BIC de 8 chars (Deutsche Bank)."""
+    from openm.transforms.iban_swift import IbanSwiftTransform
+
+    ba = BankAccount(value="DEUTDEFF")
+    transform = IbanSwiftTransform()
+    result = transform.run(ba)
+
+    enriched = result.entities[0]
+    assert enriched.properties["bank_account_valid"] is True
+    assert enriched.properties["bank_account_type"] == "bic"
+    assert enriched.properties["bank_account_country_code"] == "DE"
+    assert enriched.properties["bank_account_metadata"]["bic_format"] == "BIC8"
+    assert enriched.properties["bank_account_metadata"]["bic_business_party_prefix"] == "DEUT"
+
+
+def test_iban_swift_transform_bic11_valid():
+    """BIC de 11 chars com branch code XXX (sede)."""
+    from openm.transforms.iban_swift import IbanSwiftTransform
+
+    ba = BankAccount(value="BARCGB22XXX")
+    transform = IbanSwiftTransform()
+    result = transform.run(ba)
+
+    enriched = result.entities[0]
+    assert enriched.properties["bank_account_valid"] is True
+    assert enriched.properties["bank_account_type"] == "bic"
+    assert enriched.properties["bank_account_country_code"] == "GB"
+    assert enriched.properties["bank_account_metadata"]["bic_branch_code"] == "primary"
+
+
+def test_iban_swift_transform_bic_invalid_country():
+    """BIC com pais desconhecido -> valid=False."""
+    from openm.transforms.iban_swift import IbanSwiftTransform
+
+    ba = BankAccount(value="AAAAZZXX")
+    transform = IbanSwiftTransform()
+    result = transform.run(ba)
+
+    enriched = result.entities[0]
+    assert enriched.properties["bank_account_valid"] is False
+    assert enriched.properties["bank_account_type"] == "bic"
+    assert enriched.properties["bank_account_country_code"] == "ZZ"
+
+
+def test_iban_swift_transform_empty_value_returns_empty():
+    """BankAccount vazia -> result vazio."""
+    from openm.transforms.iban_swift import IbanSwiftTransform
+
+    ba = BankAccount(value="")
+    transform = IbanSwiftTransform()
+    result = transform.run(ba)
+
+    assert result.entities == []
+    assert result.relationships == []
+
+
+def test_iban_swift_transform_preserves_existing_properties():
+    """Propriedades pre-existentes da BankAccount sao preservadas."""
+    from openm.transforms.iban_swift import IbanSwiftTransform
+
+    ba = BankAccount(
+        value="DE89370400440532013000",
+        properties={"bank_account_owner": "Alice", "bank_account_currency": "EUR"},
+    )
+    transform = IbanSwiftTransform()
+    result = transform.run(ba)
+
+    enriched = result.entities[0]
+    assert enriched.properties["bank_account_owner"] == "Alice"
+    assert enriched.properties["bank_account_currency"] == "EUR"
+    assert enriched.properties["bank_account_valid"] is True
+
+
+def test_iban_swift_transform_skips_non_bank_account():
+    """Email nao e aceito -> result vazio."""
+    from openm.transforms.iban_swift import IbanSwiftTransform
+
+    email = Email(value="a@b.com")
+    transform = IbanSwiftTransform()
+    result = transform.run(email)
+
+    assert result.entities == []
+    assert result.relationships == []
+
+
+def test_iban_swift_transform_registered():
+    """IbanSwiftTransform aparece no registry para BankAccount."""
+    from openm.core.transform import TransformRegistry
+    from openm.transforms.iban_swift import IbanSwiftTransform
+
+    assert TransformRegistry.get("iban_swift_validation") is IbanSwiftTransform
+
+    names = [t["name"] for t in TransformRegistry.list_for_type("BankAccount")]
+    assert "iban_swift_validation" in names
+
+    for other_type in ("Email", "Domain", "IPAddress", "Person", "URL"):
+        assert "iban_swift_validation" not in [
+            t["name"] for t in TransformRegistry.list_for_type(other_type)
+        ]
+
+
+# ========================================================================
+# IBANService — unit tests
+# ========================================================================
+
+
+def test_iban_service_validate_known_valid():
+    """IBANs validos conhecidos passam na validacao."""
+    from openm.services.iban_service import IBANService
+
+    valid_ibans = [
+        "GB29NWBK60161331926819",
+        "DE89370400440532013000",
+        "FR1420041010050500013M02606",
+        "BE68539007547034",
+        "IT60X0542811101000000123456",
+        "NL91ABNA0417164300",
+        "ES9121000418450200051332",
+        "BR9700360305000010009795493P1",
+    ]
+    for iban in valid_ibans:
+        result = IBANService.validate(iban)
+        assert result["valid"] is True, f"{iban} deveria ser valido: {result['errors']}"
+
+
+def test_iban_service_validate_invalid_checksum():
+    """Checksum errado -> valid=False."""
+    from openm.services.iban_service import IBANService
+
+    result = IBANService.validate("GB29NWBK60161331926820")
+    assert result["valid"] is False
+    assert "checksum_invalid" in result["errors"]
+
+
+def test_iban_service_validate_invalid_length():
+    """Comprimento errado para o pais -> valid=False."""
+    from openm.services.iban_service import IBANService
+
+    result = IBANService.validate("DE8937040044")
+    assert result["valid"] is False
+    assert any("wrong_length" in e for e in result["errors"])
+
+
+def test_iban_service_validate_unsupported_country():
+    """Pais nao mapeado -> valid=False."""
+    from openm.services.iban_service import IBANService
+
+    result = IBANService.validate("ZZ0000000000000000000000")
+    assert result["valid"] is False
+    assert "country_unsupported" in result["errors"]
+
+
+def test_iban_service_validate_format_normalization():
+    """Espacos e hifens sao normalizados."""
+    from openm.services.iban_service import IBANService
+
+    result = IBANService.validate("GB29 NWBK 6016 1331 9268 19")
+    assert result["valid"] is True
+    assert result["country_code"] == "GB"
+
+
+def test_iban_service_validate_empty_or_none():
+    """Valor vazio ou None -> valid=False com erro empty_value."""
+    from openm.services.iban_service import IBANService
+
+    assert IBANService.validate("")["valid"] is False
+    assert IBANService.validate(None)["valid"] is False
+
+
+def test_iban_service_country_specs_non_empty():
+    """Tabela de paises tem entradas."""
+    from openm.services.iban_service import IBANService
+
+    specs = IBANService.country_specs()
+    assert len(specs) > 50
+    assert "BR" in specs
+    assert "DE" in specs
+    assert specs["BR"]["length"] == 29
+
+
+# ========================================================================
+# BICService — unit tests
+# ========================================================================
+
+
+def test_bic_service_validate_known_valid():
+    """BICs validos conhecidos passam na validacao."""
+    from openm.services.bic_service import BICService
+
+    valid_bics = [
+        "DEUTDEFF",      # Deutsche Bank, DE
+        "BOFAUS3N",      # Bank of America, US
+        "NWBKGB2L",      # NatWest, GB
+        "CHASUS33",      # JPMorgan Chase, US
+        "BNPAFRPP",      # BNP Paribas, FR
+        "BARCGB22XXX",   # Barclays GB, branch primary
+    ]
+    for bic in valid_bics:
+        result = BICService.validate(bic)
+        assert result["valid"] is True, f"{bic} deveria ser valido: {result['errors']}"
+
+
+def test_bic_service_validate_invalid_length():
+    """BIC com comprimento invalido."""
+    from openm.services.bic_service import BICService
+
+    assert BICService.validate("")["valid"] is False
+    assert BICService.validate("DEUT")["valid"] is False
+    assert BICService.validate("DEUTDEFFXX1234")["valid"] is False
+
+
+def test_bic_service_validate_unknown_country():
+    """BIC com pais desconhecido -> valid=False (mas format correto)."""
+    from openm.services.bic_service import BICService
+
+    result = BICService.validate("AAAAZZXX")
+    assert result["valid"] is False
+    assert "country_code_unknown" in result["errors"]
+
+
+def test_bic_service_validate_dash_normalization():
+    """Hifens sao removidos."""
+    from openm.services.bic_service import BICService
+
+    result = BICService.validate("DEUT-DE-FF")
+    assert result["valid"] is True
+    assert result["format"] == "BIC8"
+
+
+def test_bic_service_branch_xxx_means_primary():
+    """Branch code XXX indica sede principal."""
+    from openm.services.bic_service import BICService
+
+    result = BICService.validate("BARCGB22XXX")
+    assert result["branch_code"] == "primary"
+
+
+def test_bic_service_branch_named():
+    """Branch code != XXX e preservado."""
+    from openm.services.bic_service import BICService
+
+    result = BICService.validate("BARCGB22001")
+    assert result["branch_code"] == "001"

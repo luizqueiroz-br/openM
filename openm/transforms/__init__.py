@@ -15,6 +15,7 @@ from .abuseipdb import AbuseIpdbTransform
 from .hibp import HibpTransform
 from .urlscan import UrlscanTransform
 from .person_discovery import PersonToDomainTransform
+from .iban_swift import IbanSwiftTransform
 
 __all__ = [
     "ResolveIPTransform",
@@ -34,4 +35,5 @@ __all__ = [
     "HibpTransform",
     "UrlscanTransform",
     "PersonToDomainTransform",
+    "IbanSwiftTransform",
 ]
