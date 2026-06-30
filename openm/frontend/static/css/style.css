@@ -3,9 +3,10 @@
    ============================================================== */
 
 /* ============================================================================
-   OpenM Design System — Tokens (issue #126)
-   Convenção: oklch() para variação perceptual uniforme entre dark/light.
-   Fallback: hex line acima do oklch() para browsers < Safari 15.4.
+   OpenM Design System — Tokens (issue #126, #128)
+   - oklch() para variação perceptual uniforme entre dark/light
+   - WCAG 2.2 AA: tokens de focus, touch targets, prefers-contrast
+   - Fallback: hex line acima do oklch() para browsers < Safari 15.4
    ============================================================================ */
 
 :root,
@@ -235,6 +236,55 @@
 }
 
 * { box-sizing: border-box; }
+
+/* ============================================================================
+   Screen reader only utility + skip link (issue #128 — WCAG 2.2 AA)
+   Esconde visualmente mas mantém acessível para screen readers.
+   .sr-only-focusable e .skip-link voltam a ser visíveis ao receber foco.
+   ============================================================================ */
+.sr-only {
+    position: absolute !important;
+    width: 1px !important;
+    height: 1px !important;
+    padding: 0 !important;
+    margin: -1px !important;
+    overflow: hidden !important;
+    clip: rect(0, 0, 0, 0) !important;
+    white-space: nowrap !important;
+    border: 0 !important;
+}
+
+/* Visível ao receber foco (para skip links) */
+.sr-only-focusable:focus,
+.sr-only-focusable:focus-within,
+.skip-link:focus,
+.skip-link:focus-within {
+    position: fixed !important;
+    top: 0.5rem !important;
+    left: 0.5rem !important;
+    z-index: 9999 !important;
+    width: auto !important;
+    height: auto !important;
+    padding: 0.75rem 1rem !important;
+    margin: 0 !important;
+    overflow: visible !important;
+    clip: auto !important;
+    white-space: normal !important;
+    background: var(--accent) !important;
+    color: var(--bg-deep) !important;
+    border-radius: var(--radius) !important;
+    font-weight: 600 !important;
+    text-decoration: none !important;
+    box-shadow: var(--shadow-lg) !important;
+}
+
+/* Container dos skip links (escondido por padrão) */
+.skip-links {
+    position: absolute;
+    top: 0;
+    left: 0;
+    z-index: 9999;
+}
 
 html, body {
     margin: 0;
@@ -597,6 +647,61 @@ html, body {
     flex-shrink: 0;
 }
 
+/* ============================================================================
+   Focus visible global (issue #128 — WCAG 2.2 AA)
+   Não mostra ring em click de mouse; mostra em Tab ou foco programático.
+   ============================================================================ */
+*:focus {
+    outline: none; /* Anula outline default para usar nosso ring custom */
+}
+
+*:focus-visible {
+    outline: 2px solid var(--accent);
+    outline-offset: 2px;
+    transition: outline-offset var(--duration-fast) var(--ease-out);
+}
+
+button:focus-visible,
+a:focus-visible,
+[role="button"]:focus-visible,
+.adj-item:focus-visible,
+.list li button:focus-visible,
+.list li a:focus-visible {
+    outline: 2px solid var(--hot);
+    outline-offset: 2px;
+}
+
+/* ============================================================================
+   Touch targets ≥44×44px (issue #128 — WCAG 2.2 AA, SC 2.5.5)
+   ============================================================================ */
+.btn,
+.btn.icon,
+.btn.sm,
+button:not(.cxtmenu-item):not(.skip-link),
+.list li button,
+.inv-actions button,
+.inv-filter-input,
+.inv-filter-select,
+.inspector-tab,
+.cxtmenu-item {
+    min-width: 44px;
+    min-height: 44px;
+}
+
+/* Topbar buttons cabem dentro do container de 48px */
+.topbar .btn.icon {
+    min-width: 40px;
+    min-height: 40px;
+    padding: 0.5rem 0.6rem;
+}
+
+/* Inputs e selects: 44px altura mínima */
+input:not([type="hidden"]):not([type="file"]),
+select,
+textarea {
+    min-height: 44px;
+}
+
 /* ==============================================================
    Botões genéricos
    ============================================================== */
@@ -641,7 +746,9 @@ input, select, textarea {
     transition: border-color 0.15s;
 }
 
-input:focus, select:focus, textarea:focus {
+input:focus-visible,
+select:focus-visible,
+textarea:focus-visible {
     outline: none;
     border-color: var(--accent);
     box-shadow: 0 0 0 2px color-mix(in oklch, var(--accent) 20%, transparent);
@@ -898,8 +1005,8 @@ wa-input, wa-select, wa-textarea {
     font-size: 0.8rem;
     font-family: inherit;
 }
-.inv-filter-input:focus,
-.inv-filter-select:focus {
+.inv-filter-input:focus-visible,
+.inv-filter-select:focus-visible {
     outline: none;
     border-color: var(--accent);
 }
@@ -1404,6 +1511,50 @@ wa-input, wa-select, wa-textarea {
 }
 
 /* ============================================================================
+   High contrast mode (issue #128 — WCAG 2.2 AA, SC 1.4.6)
+   ============================================================================ */
+@media (prefers-contrast: more) {
+    :root {
+        --bg-deep: #000;
+        --bg-panel: #0a0a0a;
+        --bg-card: #1a1a1a;
+        --border: #ffffff;
+        --border-strong: #ffffff;
+        --text: #ffffff;
+        --text-dim: #e0e0e0;
+        --text-faint: #c0c0c0;
+    }
+
+    :root[data-theme="light"] {
+        --bg-deep: #ffffff;
+        --bg-panel: #f0f0f0;
+        --bg-card: #ffffff;
+        --border: #000000;
+        --border-strong: #000000;
+        --text: #000000;
+        --text-dim: #1a1a1a;
+        --text-faint: #333333;
+    }
+
+    *:focus-visible {
+        outline: 3px solid #ffff00 !important;
+        outline-offset: 2px !important;
+    }
+
+    /* Aumentar contraste de entity types */
+    :root {
+        --c-domain: #66e0ff;
+        --c-ip: #66ff8c;
+        --c-email: #ff9bd0;
+        --c-person: #c8a8ff;
+        --c-bank: #ffd866;
+        --c-device: #ffb380;
+        --c-generic: #b0b8c4;
+        --c-flagged: #ff6666;
+    }
+}
+
+/* ============================================================================
    prefers-color-scheme — fallback para primeira visita
    Quando o usuário NÃO escolheu tema explicitamente, respeita o sistema.
    ============================================================================ */
@@ -1428,9 +1579,9 @@ wa-input, wa-select, wa-textarea {
     /* Se o browser não entende color-mix, fornecemos um fallback mínimo
        de opacidade. Os tokens compostos (ex.: --focus-ring) já têm hex fallback. */
 
-    input:focus,
-    select:focus,
-    textarea:focus {
+    input:focus-visible,
+    select:focus-visible,
+    textarea:focus-visible {
         box-shadow: 0 0 0 2px rgba(56, 189, 248, 0.2);
     }
 

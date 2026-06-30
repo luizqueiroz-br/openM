@@ -234,10 +234,66 @@ window.AutoSave = AutoSave;
 const App = {
     setStatus(message, type = 'info') {
         const el = document.getElementById('status-msg');
-        el.textContent = message;
-        if (type === 'error') el.style.color = 'var(--danger)';
-        else if (type === 'success') el.style.color = 'var(--success)';
-        else el.style.color = 'var(--text-dim)';
+        if (el) el.textContent = message;
+        let color = 'var(--text-dim)';
+        if (type === 'error') color = 'var(--danger)';
+        else if (type === 'success') color = 'var(--success)';
+        // Issue #128: warning era silenciosamente text-dim — agora tem cor própria
+        else if (type === 'warning') color = 'var(--warn)';
+        if (el) el.style.color = color;
+
+        // Issue #128: announce para screen readers
+        // Polite para success/info, assertive para error/warning
+        if (message) {
+            const priority = (type === 'error' || type === 'warning') ? 'assertive' : 'polite';
+            this.announce(message, priority);
+        }
+    },
+
+    // ─────────────────────────────────────────────────────────────────────
+    // Accessibility (issue #128 — WCAG 2.2 AA foundations)
+    // Anuncia mensagens para screen readers via aria-live regions.
+    // As 2 regions já existem nos templates (Lane 2): #sr-status (polite)
+    // e #sr-alert (assertive). polite = success/info, assertive = error/warning.
+    // ─────────────────────────────────────────────────────────────────────
+
+    /**
+     * Announce a message to screen readers via aria-live regions.
+     * @param {string} message — the text to announce
+     * @param {'polite'|'assertive'} priority — defaults to 'polite'
+     */
+    announce(message, priority = 'polite') {
+        if (!message) return;
+        const id = priority === 'assertive' ? 'sr-alert' : 'sr-status';
+        const region = document.getElementById(id);
+        if (!region) {
+            console.warn('openm: aria-live region not found:', id);
+            return;
+        }
+        // Limpa primeiro para garantir que screen readers re-anunciam mensagens idênticas
+        region.textContent = '';
+        // Pequeno delay para screen readers detectarem a mudança
+        setTimeout(() => { region.textContent = message; }, 50);
+    },
+
+    /**
+     * Switch active sidebar tab (Entities / Investigations / Transforms / Admin).
+     * Triggers a focus shift for keyboard users.
+     * @param {1|2|3|4} n — tab number
+     */
+    switchSidebarTab(n) {
+        const tabs = ['entities', 'investigations', 'transforms', 'admin'];
+        if (n < 1 || n > tabs.length) return;
+        const tab = tabs[n - 1];
+        // Procura o link/botão de tab correspondente no DOM
+        const tabLink = document.querySelector(`[data-tab="${tab}"]`);
+        if (tabLink) {
+            tabLink.click();
+            this.announce(`Aba ${tab} ativada`, 'polite');
+        } else {
+            // Se não há tabs explícitas no DOM (estado atual), apenas faz announce
+            this.announce(`Tentando ativar aba ${tab}`, 'polite');
+        }
     },
 
     // ─────────────────────────────────────────────────────────────────────
@@ -811,19 +867,51 @@ const App = {
 
         // Keyboard shortcuts
         document.addEventListener('keydown', (e) => {
-            if ((e.ctrlKey || e.metaKey) && e.key === 'z' && !e.shiftKey) {
+            if (e.ctrlKey || e.metaKey) {
+                if (e.shiftKey) {
+                    if (e.key === 'T' || e.key === 't') {
+                        // Theme toggle (issue #126)
+                        e.preventDefault();
+                        this.toggleTheme();
+                        return;
+                    }
+                    if (e.key === 'Z' || e.key === 'z') {
+                        e.preventDefault();
+                        Graph.redo();
+                        return;
+                    }
+                } else {
+                    if (e.key === 'z' || e.key === 'Z') {
+                        e.preventDefault();
+                        Graph.undo();
+                        return;
+                    }
+                    if (e.key === 'y' || e.key === 'Y') {
+                        e.preventDefault();
+                        Graph.redo();
+                        return;
+                    }
+                    // Issue #128: atalhos de sidebar tabs
+                    if (e.key === '1' || e.key === '2' || e.key === '3' || e.key === '4') {
+                        e.preventDefault();
+                        this.switchSidebarTab(parseInt(e.key, 10));
+                        return;
+                    }
+                    // Issue #128: atalho Save (Ctrl/Cmd+S)
+                    if (e.key === 's' || e.key === 'S') {
+                        e.preventDefault();
+                        const btn = document.getElementById('btn-save');
+                        if (btn) btn.click();
+                        return;
+                    }
+                }
+            } else if (e.key === 'f' || e.key === 'F') {
+                if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA') return;
                 e.preventDefault();
-                Graph.undo();
-            } else if ((e.ctrlKey || e.metaKey) && (e.key === 'y' || (e.key === 'z' && e.shiftKey))) {
-                e.preventDefault();
-                Graph.redo();
-            } else if ((e.ctrlKey || e.metaKey) && e.shiftKey && (e.key === 'T' || e.key === 't')) {
-                // Theme toggle (issue #126)
-                e.preventDefault();
-                this.toggleTheme();
-            } else if (e.key === 'f' && !e.ctrlKey && !e.metaKey && document.activeElement.tagName !== 'INPUT') {
                 Graph.fit();
-            } else if (e.key === 'Delete' && Graph.selected) {
+                return;
+            } else if ((e.key === 'Delete' || e.key === 'Backspace') && Graph.selected) {
+                e.preventDefault();
                 if (Graph.selected.isNode()) {
                     Modal.confirm({
                         title: 'Remover entidade?',

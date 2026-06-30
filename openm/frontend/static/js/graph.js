@@ -44,6 +44,49 @@ const Graph = {
 
         window.cy = cy;
         window.dispatchEvent(new CustomEvent('graph-ready'));
+
+        // Issue #128: WCAG 2.2 AA — keyboard navigation em Cytoscape
+        // Tab cicla entre nodes na ordem de ID, Enter move foco para inspector.
+        // Esc clear selection (já existe no listener global em _initEvents).
+        const cyContainer = document.getElementById('cy');
+        if (cyContainer) {
+            cyContainer.addEventListener('keydown', (e) => {
+                // Só intercepta se o foco está no canvas
+                if (document.activeElement !== cyContainer) return;
+
+                if (e.key === 'Tab') {
+                    e.preventDefault();
+                    // Coletar nodes em ordem alfabética de ID
+                    const allNodes = cy.nodes().sort((a, b) => a.id().localeCompare(b.id()));
+                    if (allNodes.length === 0) return;
+                    const currentId = this.selected ? this.selected.id() : null;
+                    let nextIdx = 0;
+                    if (currentId) {
+                        const currentIdx = allNodes.findIndex(n => n.id() === currentId);
+                        nextIdx = e.shiftKey
+                            ? (currentIdx - 1 + allNodes.length) % allNodes.length
+                            : (currentIdx + 1) % allNodes.length;
+                    }
+                    const nextNode = allNodes[nextIdx];
+                    if (nextNode) {
+                        this.selectNode(nextNode.id());
+                        this.announceSelection(nextNode);
+                    }
+                } else if (e.key === 'Enter' || e.key === ' ') {
+                    e.preventDefault();
+                    if (this.selected) {
+                        // Move foco para o inspector (que tem tabindex="-1" e id="inspector-content")
+                        const inspector = document.getElementById('inspector-content');
+                        if (inspector) {
+                            inspector.focus();
+                            window.App && window.App.announce &&
+                                window.App.announce('Detalhes do nó abertos no inspector', 'polite');
+                        }
+                    }
+                }
+            });
+        }
+
         return cy;
     },
 
@@ -351,6 +394,7 @@ const Graph = {
             if (e.key === 'Escape' && this.selected) {
                 this.selected.unselect();
                 this.selected = null;
+                window.App && window.App.announce && window.App.announce('Seleção limpa', 'polite');
                 Inspector.showEmpty();
             }
         });
@@ -669,6 +713,22 @@ const Graph = {
         } else {
             this.relayout();
         }
+    },
+
+    /**
+     * Announce the currently selected node/edge to screen readers.
+     * @param {object} ele — Cytoscape element (node or edge)
+     */
+    announceSelection(ele) {
+        if (!ele || !window.App || typeof window.App.announce !== 'function') return;
+        const data = ele.data() || {};
+        const label = data.label || data.value || data.id;
+        const type = data.type || (ele.isNode && ele.isNode() ? 'nó' : 'aresta');
+        const flagged = data.virustotal_flagged ? ' (flagged)' : '';
+        window.App.announce(
+            `Selecionado: ${label}, tipo ${type}${flagged}`,
+            'polite'
+        );
     },
 };
 

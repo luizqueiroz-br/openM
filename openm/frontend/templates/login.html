@@ -24,15 +24,15 @@
         <form id="login-form" class="auth-form" autocomplete="on">
             <label for="email">Email</label>
             <input type="email" id="email" name="email" required autofocus
-                   placeholder="voce@exemplo.com">
+                   placeholder="voce@exemplo.com" aria-describedby="login-error">
 
             <label for="password">Senha</label>
             <input type="password" id="password" name="password" required minlength="8"
-                   placeholder="••••••••">
+                   placeholder="••••••••" aria-describedby="login-error">
 
-            <div id="login-error" class="auth-error" hidden></div>
+            <div id="login-error" class="auth-error" role="alert" hidden></div>
 
-            <button type="submit" class="btn primary auth-submit">
+            <button type="submit" class="btn primary auth-submit" aria-label="Entrar na sua conta">
                 <i data-lucide="log-in"></i> Entrar
             </button>
 
@@ -48,5 +48,9 @@
     <!-- Lucide icons (issue #127) — loader converts data-lucide="x" → inline SVG -->
     <script src="https://unpkg.com/lucide@latest"></script>
     <script>lucide.createIcons();</script>
+
+    <!-- ARIA live regions (issue #128) -->
+    <div id="sr-status" class="sr-only" aria-live="polite" aria-atomic="true"></div>
+    <div id="sr-alert" class="sr-only" aria-live="assertive" aria-atomic="true"></div>
 </body>
 </html>
