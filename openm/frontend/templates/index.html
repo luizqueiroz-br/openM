@@ -76,19 +76,36 @@
         <!-- ============================================ WORKSPACE -->
         <main id="main" class="workspace" tabindex="-1" aria-label="Área de trabalho">
             <!-- ====== PALETTE (ESQ) ====== -->
-            <aside id="palette" class="sidebar left" tabindex="-1" aria-label="Paleta de entidades e investigações">
-                <div class="sidebar-section">
+            <aside id="palette" class="sidebar left" tabindex="-1" aria-label="Sidebar: Entidades, Investigações, Transforms, Admin">
+                <nav class="sidebar-tabs" role="tablist" aria-label="Seções da sidebar">
+                    <button id="tab-entities" class="sidebar-tab active" type="button" role="tab" data-tab="entities" aria-selected="true" aria-controls="section-entities" tabindex="0">
+                        <i data-lucide="shapes" aria-hidden="true"></i>
+                        <span>Entidades</span>
+                    </button>
+                    <button id="tab-investigations" class="sidebar-tab" type="button" role="tab" data-tab="investigations" aria-selected="false" aria-controls="section-investigations" tabindex="-1">
+                        <i data-lucide="history" aria-hidden="true"></i>
+                        <span>Investigações</span>
+                    </button>
+                    <button id="tab-transforms" class="sidebar-tab" type="button" role="tab" data-tab="transforms" aria-selected="false" aria-controls="section-transforms" tabindex="-1" data-roles="admin,analyst">
+                        <i data-lucide="wand-sparkles" aria-hidden="true"></i>
+                        <span>Transforms</span>
+                    </button>
+                    <button id="tab-admin" class="sidebar-tab" type="button" role="tab" data-tab="admin" aria-selected="false" aria-controls="section-admin" tabindex="-1" data-roles="admin">
+                        <i data-lucide="users" aria-hidden="true"></i>
+                        <span>Admin</span>
+                    </button>
+                </nav>
+
+                <div class="sidebar-section" id="section-entities" role="tabpanel" aria-labelledby="tab-entities">
                     <h3><i data-lucide="search"></i>Buscar</h3>
                     <div class="search-bar">
                         <i data-lucide="search"></i>
                         <input type="text" id="search-input" placeholder="Filtrar entidades..." aria-label="Buscar entidades">
                     </div>
-                </div>
-                <div class="sidebar-section">
-                    <h3><i data-lucide="shapes"></i>Entidades</h3>
+                    <h3 style="margin-top:0.75rem"><i data-lucide="shapes"></i>Entidades</h3>
                     <div id="palette-items" role="list" aria-label="Entidades disponíveis para arrastar ao grafo"></div>
                 </div>
-                <div class="sidebar-section">
+                <div class="sidebar-section" id="section-investigations" role="tabpanel" aria-labelledby="tab-investigations" hidden>
                     <h3><i data-lucide="history"></i>Investigações</h3>
                     <input type="text" id="inv-title" placeholder="Título..." aria-label="Título da investigação">
                     <textarea id="inv-desc" rows="2" placeholder="Descrição..." style="margin-top:0.4rem" aria-label="Descrição da investigação"></textarea>
@@ -110,28 +127,41 @@
                     </div>
                     <ul class="list" id="investigations-list" role="list" aria-label="Lista de investigações salvas"></ul>
                 </div>
-                <div class="sidebar-section">
-                    <h3><i data-lucide="key"></i>API Keys</h3>
-                    <select id="key-service" data-roles="admin,analyst" aria-label="Serviço de API">
-                        <!-- options populados dinamicamente por loadKeyServices() -->
-                    </select>
-                    <input type="text" id="key-value" placeholder="Chave..." style="margin-top:0.4rem" data-roles="admin,analyst" aria-label="Valor da chave de API">
-                    <select id="key-type" style="margin-top:0.4rem" data-roles="admin,analyst" aria-label="Tipo de chave">
-                        <option value="free">Free</option>
-                        <option value="paid">Paid</option>
-                    </select>
-                    <button class="btn primary" id="btn-save-key" style="width:100%; margin-top:0.4rem" data-roles="admin,analyst">
-                        <i data-lucide="save"></i>Salvar Chave
-                    </button>
-                    <ul class="list" id="keys-list"></ul>
+
+                <!-- ========== Transform Hub (issue #130) ==========
+                     Visível para roles 'admin' e 'analyst' via data-roles no tab.
+                     8 categorias em árvore populadas via JS (Lane 3).
+                -->
+                <div class="sidebar-section" id="section-transforms" role="tabpanel" aria-labelledby="tab-transforms" data-roles="admin,analyst" hidden>
+                    <div class="transform-hub">
+                        <header class="th-header">
+                            <h3><i data-lucide="wand-sparkles" aria-hidden="true"></i> Transform Hub</h3>
+                            <div class="th-search-bar">
+                                <i data-lucide="search" class="th-search-icon" aria-hidden="true"></i>
+                                <input type="text" id="th-search" class="th-search-input" placeholder="Buscar transforms..." aria-label="Buscar transforms" autocomplete="off" spellcheck="false">
+                            </div>
+                        </header>
+                        <div class="th-body">
+                            <nav class="th-tree" id="th-tree" role="tree" aria-label="Árvore de transforms por categoria">
+                                <!-- 8 categorias com 2-5 transforms cada, populadas via JS -->
+                            </nav>
+                            <aside class="th-detail" id="th-detail" role="region" aria-label="Detalhes do transform">
+                                <div class="th-detail-empty">
+                                    <i data-lucide="info" aria-hidden="true"></i>
+                                    <p>Selecione um transform à esquerda para ver detalhes.</p>
+                                </div>
+                            </aside>
+                        </div>
+                    </div>
                 </div>
 
                 <!-- ========== Administração (issue #42) ==========
-                     Visível apenas para role='admin' via data-roles.
+                     Visível apenas para role='admin' via data-roles no tab button.
                      A UI esconde via permissions.js + o backend revalida
                      com @require_role("admin") em openm/api/admin.py.
+                     API Keys foi mesclada dentro desta section (issue #130).
                 -->
-                <div class="sidebar-section" id="admin-section" data-roles="admin" tabindex="-1" aria-label="Administração de usuários">
+                <div class="sidebar-section" id="section-admin" role="tabpanel" aria-labelledby="tab-admin" data-roles="admin" hidden>
                     <h3><i data-lucide="users"></i>Administração</h3>
                     <button class="btn small" id="admin-refresh" style="width:100%; margin-bottom:0.4rem">
                         <i data-lucide="refresh-cw"></i>Atualizar
@@ -150,6 +180,20 @@
                             <tr><td colspan="4" class="admin-empty">Carregando...</td></tr>
                         </tbody>
                     </table>
+
+                    <h3 style="margin-top:0.75rem"><i data-lucide="key"></i>API Keys</h3>
+                    <select id="key-service" data-roles="admin,analyst" aria-label="Serviço de API">
+                        <!-- options populados dinamicamente por loadKeyServices() -->
+                    </select>
+                    <input type="text" id="key-value" placeholder="Chave..." style="margin-top:0.4rem" data-roles="admin,analyst" aria-label="Valor da chave de API">
+                    <select id="key-type" style="margin-top:0.4rem" data-roles="admin,analyst" aria-label="Tipo de chave">
+                        <option value="free">Free</option>
+                        <option value="paid">Paid</option>
+                    </select>
+                    <button class="btn primary" id="btn-save-key" style="width:100%; margin-top:0.4rem" data-roles="admin,analyst">
+                        <i data-lucide="save"></i>Salvar Chave
+                    </button>
+                    <ul class="list" id="keys-list"></ul>
                 </div>
             </aside>
 
@@ -252,6 +296,7 @@
     <script src="{{ url_for('static', filename='js/graph.js') }}"></script>
     <script src="{{ url_for('static', filename='js/admin.js') }}"></script>
     <script src="{{ url_for('static', filename='js/auth.js') }}"></script>
+    <script src="{{ url_for('static', filename='js/transforms.js') }}"></script>
     <!-- Web Awesome 3.9+ (issue #127) — must load before app.js -->
     <script type="module" src="https://cdn.jsdelivr.net/npm/@awesome.me/awesome@3/dist/awesome.loader.js"></script>
     <script src="{{ url_for('static', filename='js/app.js') }}"></script>
