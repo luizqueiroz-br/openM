@@ -293,19 +293,85 @@ Sem chave cadastrada, o `CheckFraudEmailTransform` usa simulação controlada.
 
 ---
 
-## 🛣 Roadmap
+## 🇧🇷 Brasil + Mercado Financeiro + Empresas
+
+A versão `v1.0-brazil` do OpenM adiciona entidades e transforms nativos para fontes públicas brasileiras, com **LGPD Privacy Gate** integrado (opt-in, audit log, export/delete). Tudo roda em modo simulado por padrão — sem chave de API você já consegue testar localmente.
+
+### Quickstart: investigando uma empresa brasileira
+
+1. **Crie uma entidade `Cnpj`**: arraste o card "Cnpj" da paleta (disponível após a release v1.0-brazil) para o canvas → modal com campo "CNPJ (com ou sem pontuação)".
+2. **Rode `BrasilApiCnpjTransform`**: clique com botão direito no nó → "Run Transform" → escolhe `brasilapi_cnpj` → o grafo é enriquecido automaticamente com `Estabelecimento`, `Empresa`, `Sócios`, `PessoaFisica`/`PessoaJuridica` e os relacionamentos `IDENTIFICA`, `PARTE_DE`, `SOCIO_DE`, `TEM_PAPEL`.
+3. **Cruze com sanções**: clique com botão direito no nó `Empresa` → "Run Transform" → `cgu_sancoes` → nós `Sancao` e `OrgaoSancionador` aparecem se houver ocorrências em CEIS/CNEP/CEPIM.
+4. **Cruze com mercado**: se a empresa for listada, rode `cvm_cias_abertas` para confirmar e enriquecer com `CompanhiaAberta` + `Acao` + `setor_b3`. Em seguida, `brapi_quote` traz cotação e fundamentalistas (P/L, P/VP, DY).
+5. **Exporte e compartilhe**: "Save" para persistir a investigação; "Download" para JSON.
+
+### Transforms BR planejados (milestone `v1.0-brazil`)
+
+| Transform | Fonte | Autenticação | Cache | Alvo |
+|---|---|---|---|---|
+| `bacen_sgs` | api.bcb.gov.br (SGS) | nenhuma | 6-24h | Séries macro (Selic, IPCA, CDI, USD) |
+| `brasilapi_cep` | brasilapi.com.br | nenhuma | 7d | Endereço + IBGE + coordenadas |
+| `brasilapi_cnpj` | brasilapi.com.br | nenhuma | 24h | Empresa + Estabelecimento + QSA |
+| `brapi_quote` | brapi.dev | token grátis (15k req/mês) | 30min | Cotações + fundamentalistas + TD |
+| `cvm_cias_abertas` | dados.cvm.gov.br | nenhuma | 7d | Companhia aberta + ações |
+| `cgu_sancoes` | api.portaldatransparencia.gov.br | API Key (e-mail) | 24h | Sanções (CEIS/CNEP/CEPIM) |
+
+### Novas entidades de grafo
+
+`Cnpj`, `Empresa`, `Estabelecimento`, `Socio`, `PessoaFisica`, `PessoaJuridica`, `Ticker`, `Acao`, `CompanhiaAberta`, `Sancao`, `OrgaoSancionador`, `ProcessoJudicial`, `Movimentacao`, `Municipio`, `MacroSerie`, `IndicadorMacro`.
+
+### LGPD Privacy Gate
+
+- `LGPD_PF_TRANSFORMS_ENABLED` (default `False`): opt-in global para transforms de PF. Sem essa flag, transforms que tocam CPF retornam `403 LGPD_PF_DISABLED`.
+- Audit log dedicado (`LGPD_DATA_ACCESS` action) com retenção própria (`LGPD_AUDIT_RETENTION_DAYS`, default 365).
+- Endpoints `GET /api/lgpd/export?cpf_mask=...` e `DELETE /api/lgpd/purge?cpf_mask=...` para DSR (art. 18 LGPD).
+- Banner no frontend sinaliza investigações com dados pessoais.
+
+### Modo simulado
+
+Defina `OPENM_SIMULATED_BRAZIL=1` no `.env` para usar fixtures locais (`tests/fixtures/brazil/<provider>/*.json`) em vez de chamar a API real. Útil para CI, demos e dev offline.
+
+### Documentação detalhada
+
+- Plano completo de issues: [docs/ISSUES_BRAZIL_OSINT.md](docs/ISSUES_BRAZIL_OSINT.md)
+- Milestone no GitHub: <https://github.com/luizqueiroz-br/openM/milestone/5>
+- Issues abertas: <https://github.com/luizqueiroz-br/openM/issues?q=is%3Aissue+is%3Aopen+milestone%3Av1.0-brazil>
+
+---
+
+## 🛣️ Roadmap
+
+### ✅ Já entregue
 
 - [x] Autenticação JWT + refresh tokens (issue #1)
 - [x] RBAC: admin/analyst/viewer (issue #3)
 - [x] Audit log de ações sensíveis com retenção configurável (issue #4)
-- [ ] Mais transforms (Whois, GeoIP, Shodan, VirusTotal)
+- [x] Transforms: Whois, GeoIP, Shodan, VirusTotal, DNS records, SSL, MAC OUI, HIBP, Urlscan, AbuseIPDB, crt.sh, SecurityTrails, Hunter, IBAN/SWIFT
+
+### 🚧 Em andamento — milestone [v1.0-brazil](https://github.com/luizqueiroz-br/openM/milestone/5)
+
+- [ ] **#112** Validador e formatador BR (CPF / CNPJ alfanumérico / PIS)
+- [ ] **#111** Máscara LGPD + log filter
+- [ ] **#113** Entidades de grafo BR (Cnpj, Empresa, Estabelecimento, Socio, PessoaFisica, ...)
+- [ ] **#114** Template de issue `brazil-osint.yml`
+- [ ] **#115** Transform BACEN SGS Séries Macro
+- [ ] **#116** Transform BrasilAPI CEP
+- [ ] **#117** Transform BrasilAPI CNPJ
+- [ ] **#118** Transform Brapi Cotações + Títulos Públicos
+- [ ] **#119** Transform CVM Cadastro Companhias Abertas
+- [ ] **#120** Transform Portal da Transparência — Sanções (CEIS/CNEP/CEPIM)
+- [ ] **#121** LGPD Privacy Gate (audit + opt-in + banner + data export)
+
+### 🔮 Próximas (v1.1+)
+
 - [ ] Compartilhamento de investigações entre usuários
 - [ ] Exportar grafo como PNG/SVG
 - [ ] Anotações livres sobre nós
 - [ ] Filtros por tipo e propriedade
 - [ ] Modo colaborativo em tempo real (WebSocket)
+- [ ] Adiados da expansão BR: TSE Candidatos, DataJud CNJ, CoinGecko, Bulk CNPJ, Filtros salvos, Export CSV/XLSX, Heatmap de risco
 
-Para detalhes de autenticação, veja [docs/auth.md](docs/auth.md). Para a matriz de permissões por papel, veja [docs/rbac.md](docs/rbac.md).
+Para detalhes completos da expansão BR, veja [docs/ISSUES_BRAZIL_OSINT.md](docs/ISSUES_BRAZIL_OSINT.md). Para a matriz de permissões por papel, veja [docs/rbac.md](docs/rbac.md). Para autenticação, veja [docs/auth.md](docs/auth.md).
 
 ---
 
