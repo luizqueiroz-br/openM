@@ -1,6 +1,4 @@
 """Testes do endpoint /api/sightings (issue #129)."""
-import pytest
-
 from openm.core.audit import ACTION_TRANSFORM_RUN, ACTION_ENTITY_UPDATE
 from openm.extensions import db
 from openm.models.audit_log import AuditLog
