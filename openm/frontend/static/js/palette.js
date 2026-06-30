@@ -1,5 +1,9 @@
 /**
  * Palette - painel esquerdo com entidades arrastáveis e drag-and-drop para o canvas.
+ *
+ * Nota (issue #127, parte 2): o markup `.palette-item` é mantido como está.
+ * A migração para `<wa-tree-item>` está planejada para fase posterior
+ * (WA tree API está marcada como imatura no discovery).
  */
 
 const Palette = {

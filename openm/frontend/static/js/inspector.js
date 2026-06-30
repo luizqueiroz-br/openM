@@ -31,6 +31,77 @@ const Inspector = {
             !['id', 'label', 'type'].includes(k)
         );
         const adj = window.Graph.getAdjacent ? window.Graph.getAdjacent(node.id) : [];
+        const waTabsReady = typeof window !== 'undefined'
+            && !!window.customElements
+            && !!customElements.get('wa-tab-group')
+            && !!customElements.get('wa-tab')
+            && !!customElements.get('wa-tab-panel');
+
+        const tabsMarkup = waTabsReady
+            ? `<wa-tab-group id="inspector-tab-group">
+                    <wa-tab slot="nav" panel="props" active>Propriedades</wa-tab>
+                    <wa-tab slot="nav" panel="transforms">Transforms</wa-tab>
+                    <wa-tab slot="nav" panel="adj">Adjacentes</wa-tab>
+                </wa-tab-group>`
+            : `<div class="inspector-tabs">
+                    <button class="inspector-tab active" data-tab="props">Propriedades</button>
+                    <button class="inspector-tab" data-tab="transforms">Transforms</button>
+                    <button class="inspector-tab" data-tab="adj">Adjacentes</button>
+                </div>`;
+
+        const propsPaneInner = `
+            <div class="prop-row">
+                <span class="k">ID</span>
+                <span class="v mono">${node.id.substring(0, 8)}…</span>
+            </div>
+            <div class="prop-row">
+                <span class="k">Tipo</span>
+                <span class="v">${node.type}</span>
+            </div>
+            <div class="prop-row">
+                <span class="k">Valor</span>
+                <span class="v mono">${escapeHtml(String(node.label || node.value || ''))}</span>
+            </div>
+            ${props.length === 0 ? '<div class="empty">Sem propriedades extras</div>' : ''}
+            ${props.map(([k, v]) => `
+                <div class="prop-row">
+                    <span class="k">${escapeHtml(k)}</span>
+                    <span class="v">${escapeHtml(String(typeof v === 'object' ? JSON.stringify(v) : v))}</span>
+                </div>
+            `).join('')}
+            <button class="btn sm" id="edit-props" style="margin-top:0.6rem; width:100%">
+                <i class="fa-solid fa-pen"></i>Editar propriedades
+            </button>
+        `;
+
+        const bodyInner = `
+            <div class="tab-pane" data-pane="props">
+                ${propsPaneInner}
+            </div>
+            <div class="tab-pane" data-pane="transforms" style="display:none">
+                <div id="transforms-list"></div>
+            </div>
+            <div class="tab-pane" data-pane="adj" style="display:none">
+                <div class="adj-list" id="adj-list"></div>
+            </div>
+        `;
+
+        const bodyMarkup = waTabsReady
+            ? `<wa-tab-group id="inspector-tab-group">
+                    <wa-tab slot="nav" panel="props" active>Propriedades</wa-tab>
+                    <wa-tab slot="nav" panel="transforms">Transforms</wa-tab>
+                    <wa-tab slot="nav" panel="adj">Adjacentes</wa-tab>
+                    <wa-tab-panel name="props">
+                        ${propsPaneInner}
+                    </wa-tab-panel>
+                    <wa-tab-panel name="transforms">
+                        <div id="transforms-list"></div>
+                    </wa-tab-panel>
+                    <wa-tab-panel name="adj">
+                        <div class="adj-list" id="adj-list"></div>
+                    </wa-tab-panel>
+                </wa-tab-group>`
+            : `<div class="inspector-body">${bodyInner}</div>`;
 
         this.el.innerHTML = `
             <div class="inspector-header">
@@ -42,54 +113,37 @@ const Inspector = {
                     <div class="value">${escapeHtml(String(node.label || node.value || node.id))}</div>
                 </div>
             </div>
-            <div class="inspector-tabs">
-                <button class="inspector-tab active" data-tab="props">Propriedades</button>
-                <button class="inspector-tab" data-tab="transforms">Transforms</button>
-                <button class="inspector-tab" data-tab="adj">Adjacentes</button>
-            </div>
-            <div class="inspector-body">
-                <div class="tab-pane" data-pane="props">
-                    <div class="prop-row">
-                        <span class="k">ID</span>
-                        <span class="v mono">${node.id.substring(0, 8)}…</span>
-                    </div>
-                    <div class="prop-row">
-                        <span class="k">Tipo</span>
-                        <span class="v">${node.type}</span>
-                    </div>
-                    <div class="prop-row">
-                        <span class="k">Valor</span>
-                        <span class="v mono">${escapeHtml(String(node.label || node.value || ''))}</span>
-                    </div>
-                    ${props.length === 0 ? '<div class="empty">Sem propriedades extras</div>' : ''}
-                    ${props.map(([k, v]) => `
-                        <div class="prop-row">
-                            <span class="k">${escapeHtml(k)}</span>
-                            <span class="v">${escapeHtml(String(typeof v === 'object' ? JSON.stringify(v) : v))}</span>
-                        </div>
-                    `).join('')}
-                    <button class="btn sm" id="edit-props" style="margin-top:0.6rem; width:100%">
-                        <i class="fa-solid fa-pen"></i>Editar propriedades
-                    </button>
-                </div>
-                <div class="tab-pane" data-pane="transforms" style="display:none">
-                    <div id="transforms-list"></div>
-                </div>
-                <div class="tab-pane" data-pane="adj" style="display:none">
-                    <div class="adj-list" id="adj-list"></div>
-                </div>
-            </div>
+            ${waTabsReady ? bodyMarkup : `${tabsMarkup}<div class="inspector-body">${bodyInner}</div>`}
         `;
 
-        // Tabs
-        this.el.querySelectorAll('.inspector-tab').forEach(tab => {
-            tab.addEventListener('click', () => {
-                this.el.querySelectorAll('.inspector-tab').forEach(t => t.classList.remove('active'));
-                this.el.querySelectorAll('.tab-pane').forEach(p => p.style.display = 'none');
-                tab.classList.add('active');
-                this.el.querySelector(`[data-pane="${tab.dataset.tab}"]`).style.display = 'block';
+        // Tabs: caminho WA (evento `tab-show` do <wa-tab-group>)
+        if (waTabsReady) {
+            const tabGroup = this.el.querySelector('#inspector-tab-group');
+            if (tabGroup) {
+                tabGroup.addEventListener('tab-show', (event) => {
+                    const panel = event.detail && event.detail.name;
+                    if (panel === 'transforms' && this.currentSelection) {
+                        this.loadTransforms(this.currentSelection);
+                    } else if (panel === 'adj' && this.currentSelection) {
+                        this.loadAdjacent(
+                            window.Graph.getAdjacent
+                                ? window.Graph.getAdjacent(this.currentSelection.id)
+                                : []
+                        );
+                    }
+                });
+            }
+        } else {
+            // Fallback: comportamento legado com classes .active
+            this.el.querySelectorAll('.inspector-tab').forEach(tab => {
+                tab.addEventListener('click', () => {
+                    this.el.querySelectorAll('.inspector-tab').forEach(t => t.classList.remove('active'));
+                    this.el.querySelectorAll('.tab-pane').forEach(p => p.style.display = 'none');
+                    tab.classList.add('active');
+                    this.el.querySelector(`[data-pane="${tab.dataset.tab}"]`).style.display = 'block';
+                });
             });
-        });
+        }
 
         // Edit properties
         this.el.querySelector('#edit-props').addEventListener('click', () => {
