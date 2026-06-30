@@ -49,3 +49,6 @@ logs/
 # Arquivos temporários
 /tmp/
 *.tmp
+
+# Local workspace (deepwork sessions, worktrees metadata) — not for git
+.slim/
