@@ -15,6 +15,7 @@ from openm.api import (
     transforms_bp,
     auth_bp,
     audit_bp,
+    sightings_bp,
 )
 from openm.frontend.routes import frontend_bp
 
@@ -57,6 +58,7 @@ def create_app(config_class=Config) -> Flask:
     app.register_blueprint(auth_bp)
     app.register_blueprint(admin_bp)
     app.register_blueprint(audit_bp)
+    app.register_blueprint(sightings_bp)
 
     # Páginas HTML (login/registro/logout)
     app.register_blueprint(frontend_bp)

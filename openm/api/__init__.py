@@ -6,6 +6,7 @@ from openm.api.investigations import investigations_bp
 from openm.api.keys import keys_bp
 from openm.api.auth import auth_bp
 from openm.api.audit import audit_bp
+from openm.api.sightings import sightings_bp
 
 __all__ = [
     "admin_bp",
@@ -16,4 +17,5 @@ __all__ = [
     "keys_bp",
     "auth_bp",
     "audit_bp",
+    "sightings_bp",
 ]

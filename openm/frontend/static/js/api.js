@@ -154,6 +154,16 @@ const OpenMAPI = {
             }),
         }),
 
+    // ============ Sightings (issue #129 — Timeline do Inspector) ============
+    // GET /api/sightings?entity_id=X&category=all|transforms|edits|manual&limit=50
+    // Resposta: {sightings: [...], count, entity_id, category}
+    listSightings: (entityId, opts = {}) => {
+        const params = new URLSearchParams({ entity_id: entityId });
+        if (opts.category) params.set('category', opts.category);
+        if (opts.limit) params.set('limit', String(opts.limit));
+        return api(`/sightings?${params.toString()}`);
+    },
+
     // ============ Graph ============
     getSubgraph: (entityId, depth = 2) =>
         api(`/subgraph/${encodeURIComponent(entityId)}?depth=${depth}`),
