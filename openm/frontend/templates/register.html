@@ -9,13 +9,14 @@
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
 
-    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css">
+    <!-- Web Awesome 3.9+ (issue #127) — design system base -->
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@awesome.me/awesome@3/css/awesome.min.css" />
     <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
 </head>
 <body class="auth-body">
     <main class="auth-card">
         <header class="auth-brand">
-            <div class="logo"><i class="fa-solid fa-diagram-project"></i></div>
+            <div class="logo"><i data-lucide="git-fork"></i></div>
             <h1>OpenM</h1>
             <p class="auth-subtitle">Criar nova conta</p>
         </header>
@@ -36,7 +37,7 @@
             <div id="register-error" class="auth-error" hidden></div>
 
             <button type="submit" class="btn primary auth-submit">
-                <i class="fa-solid fa-user-plus"></i> Criar conta
+                <i data-lucide="user-plus"></i> Criar conta
             </button>
 
             <p class="auth-switch">
@@ -46,5 +47,8 @@
     </main>
 
     <script src="{{ url_for('static', filename='js/auth.js') }}"></script>
+    <!-- Lucide icons (issue #127) — loader converts data-lucide="x" → inline SVG -->
+    <script src="https://unpkg.com/lucide@latest"></script>
+    <script>lucide.createIcons();</script>
 </body>
 </html>

@@ -57,7 +57,7 @@
 
             submitBtn.disabled = true;
             const originalHtml = submitBtn.innerHTML;
-            submitBtn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> Entrando...';
+            submitBtn.innerHTML = '<i data-lucide="loader-circle" class="spin"></i> Entrando...';
 
             try {
                 await postJSON(`${API_BASE}/login`, { email, password });
@@ -93,7 +93,7 @@
 
             submitBtn.disabled = true;
             const originalHtml = submitBtn.innerHTML;
-            submitBtn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> Criando...';
+            submitBtn.innerHTML = '<i data-lucide="loader-circle" class="spin"></i> Criando...';
 
             try {
                 await postJSON(`${API_BASE}/register`, { email, password });

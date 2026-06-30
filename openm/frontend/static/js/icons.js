@@ -1,25 +1,33 @@
 /**
  * Mapeamento de tipos de entidade para ícones Font Awesome e cores.
+ *
+ * O campo `icon` (string FA-style) é mantido para compatibilidade com
+ * graph.js (issue #127, Lane 2): ele faz mapeamento FA → glyph textual
+ * (◉ ⌘ ✉ ☻ ₪ ▣) no canvas Cytoscape. NÃO REMOVER sem ajustar graph.js.
+ *
+ * O campo `lucide` é o nome Lucide correspondente (usado em DOM via
+ * <i data-lucide="...">). Lane 3 vai trocar getIconHtml() para usar
+ * `meta.lucide` em vez de `meta.icon` para ícones em DOM.
  */
 
 const ENTITY_ICONS = {
-    Domain: { icon: 'fa-globe', color: '#38bdf8' },
-    IPAddress: { icon: 'fa-network-wired', color: '#22c55e' },
-    Email: { icon: 'fa-envelope', color: '#f472b6' },
-    Person: { icon: 'fa-user', color: '#a78bfa' },
-    BankAccount: { icon: 'fa-credit-card', color: '#fbbf24' },
-    Device: { icon: 'fa-laptop', color: '#fb923c' },
-    Generic: { icon: 'fa-circle', color: '#64748b' },
+    Domain: { icon: 'fa-globe', lucide: 'globe', color: '#38bdf8' },
+    IPAddress: { icon: 'fa-network-wired', lucide: 'network', color: '#22c55e' },
+    Email: { icon: 'fa-envelope', lucide: 'mail', color: '#f472b6' },
+    Person: { icon: 'fa-user', lucide: 'user', color: '#a78bfa' },
+    BankAccount: { icon: 'fa-credit-card', lucide: 'credit-card', color: '#fbbf24' },
+    Device: { icon: 'fa-laptop', lucide: 'laptop', color: '#fb923c' },
+    Generic: { icon: 'fa-circle', lucide: 'circle', color: '#64748b' },
 };
 
 const RELATION_ICONS = {
-    RESOLVES_TO: 'fa-arrow-right',
-    OWNS: 'fa-key',
-    CONNECTED_TO: 'fa-link',
-    ASSOCIATED_WITH: 'fa-link',
-    SUSPICIOUS_LOGIN: 'fa-triangle-exclamation',
-    TRANSACTED_WITH: 'fa-money-bill-transfer',
-    HOSTED_ON: 'fa-server',
+    RESOLVES_TO: 'arrow-right',
+    OWNS: 'key',
+    CONNECTED_TO: 'link',
+    ASSOCIATED_WITH: 'link',
+    SUSPICIOUS_LOGIN: 'triangle-alert',
+    TRANSACTED_WITH: 'wallet',
+    HOSTED_ON: 'server',
 };
 
 function getEntityMeta(type) {

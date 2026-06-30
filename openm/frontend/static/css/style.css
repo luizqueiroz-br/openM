@@ -809,6 +809,47 @@ label {
 }
 
 /* ==============================================================
+   Web Awesome overrides (issue #127, parte 2)
+   - Mantém a paleta dark/light já existente via tokens
+   - As classes .modal* acima servem como fallback se WA não
+     tiver carregado (customElements.get('wa-dialog') === undefined)
+   ============================================================== */
+wa-dialog {
+    --width: 420px;
+}
+.wa-modal-body {
+    padding: 1rem;
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+}
+.wa-modal-footer {
+    display: flex;
+    justify-content: flex-end;
+    gap: 0.5rem;
+    padding: 0.75rem 1rem;
+}
+wa-tab-group {
+    --indicator-color: var(--accent);
+    --track-color: var(--border);
+}
+wa-tab::part(base) {
+    color: var(--text-dim);
+    font-weight: 500;
+}
+wa-tab[active]::part(base) {
+    color: var(--accent);
+}
+wa-input, wa-select, wa-textarea {
+    width: 100%;
+    --background-color: var(--bg-card);
+    --border-color: var(--border);
+    --color: var(--text);
+    --border-radius: var(--radius);
+    --focus-ring-color: var(--accent);
+}
+
+/* ==============================================================
    Lista de investigações/keys
    ============================================================== */
 
@@ -1341,6 +1382,12 @@ label {
     color: var(--text-dim);
     border-color: color-mix(in oklch, var(--role-viewer) 40%, transparent);
 }
+
+/* ============================================================================
+   Lucide icon animation (issue #127)
+   ============================================================================ */
+.spin { animation: spin 1s linear infinite; display: inline-block; }
+@keyframes spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
 
 /* ============================================================================
    prefers-reduced-motion — desabilita animações
