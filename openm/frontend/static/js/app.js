@@ -87,11 +87,8 @@ const AutoSave = {
                 console.warn('Auto-save: investigation não encontrada (404). Parando.');
                 this.stop();
                 if (window.Graph && window.Graph.clear) window.Graph.clear();
-                if (window.App && window.App.setStatus) {
-                    window.App.setStatus(
-                        'Investigação não encontrada (provavelmente excluída). Auto-save parado.',
-                        'warning',
-                    );
+                if (window.App && window.App.toast) {
+                    window.App.toast('warning', 'Investigação não encontrada (provavelmente excluída). Auto-save parado.');
                 }
                 return;
             }
@@ -136,11 +133,8 @@ const AutoSave = {
                     }
                     this.currentInvestigationVersion = conflictData.current_version;
                     this._lastError = null;
-                    if (window.App && window.App.setStatus) {
-                        window.App.setStatus(
-                            'Snapshot recarregado do servidor. Suas alterações locais foram perdidas.',
-                            'warning',
-                        );
+                    if (window.App && window.App.toast) {
+                        window.App.toast('warning', 'Snapshot recarregado do servidor. Suas alterações locais foram perdidas.');
                     }
                     this.render();
                 },
@@ -163,19 +157,13 @@ const AutoSave = {
                             this.currentInvestigationVersion = response.investigation.version;
                         }
                         this.hasChanges = false;
-                        if (window.App && window.App.setStatus) {
-                            window.App.setStatus(
-                                'Versão do servidor sobrescrita.',
-                                'success',
-                            );
+                        if (window.App && window.App.toast) {
+                            window.App.toast('success', 'Versão do servidor sobrescrita.');
                         }
                     } catch (e) {
                         this._lastError = e.message || 'erro ao sobrescrever';
-                        if (window.App && window.App.setStatus) {
-                            window.App.setStatus(
-                                `Erro ao sobrescrever: ${e.message}`,
-                                'error',
-                            );
+                        if (window.App && window.App.toast) {
+                            window.App.toast('error', `Erro ao sobrescrever: ${e.message}`);
                         }
                     } finally {
                         this.render();
@@ -185,11 +173,8 @@ const AutoSave = {
                     // Cancela: mantém grafo local, marca como não salvo.
                     this.hasChanges = true;
                     this._lastError = 'conflito';
-                    if (window.App && window.App.setStatus) {
-                        window.App.setStatus(
-                            'Conflito não resolvido. Salve manualmente após revisar.',
-                            'warning',
-                        );
+                    if (window.App && window.App.toast) {
+                        window.App.toast('warning', 'Conflito não resolvido. Salve manualmente após revisar.');
                     }
                     this.render();
                 },
@@ -233,6 +218,11 @@ window.AutoSave = AutoSave;
 
 const App = {
     setStatus(message, type = 'info') {
+        // Deprecated desde issue #124 — usar App.toast(type, message) em vez disso.
+        // Mantido como wrapper que escreve na statusbar persistente (#status-msg) +
+        // anuncia para screen readers. Apenas a inicialização (app.js init) usa
+        // este caminho; as 60+ chamadas dinâmicas foram migradas para App.toast().
+        console.warn('App.setStatus is deprecated since #124, use App.toast(type, message)');
         const el = document.getElementById('status-msg');
         if (el) el.textContent = message;
         let color = 'var(--text-dim)';
@@ -242,7 +232,7 @@ const App = {
         else if (type === 'warning') color = 'var(--warn)';
         if (el) el.style.color = color;
 
-        // Issue #128: announce para screen readers
+        // A11y mantido: announce para screen readers
         // Polite para success/info, assertive para error/warning
         if (message) {
             const priority = (type === 'error' || type === 'warning') ? 'assertive' : 'polite';
@@ -274,6 +264,128 @@ const App = {
         region.textContent = '';
         // Pequeno delay para screen readers detectarem a mudança
         setTimeout(() => { region.textContent = message; }, 50);
+    },
+
+    // ─────────────────────────────────────────────────────────────────────
+    // Toast system (issue #124 — Notyf 3.10.0 backend, max 5 empilhados)
+    // Substitui App.setStatus() em 60+ chamadas. Wrapper OpenM sobre Notyf:
+    //   - 5 tipos: success / error / warning / info / loading
+    //   - Posição: bottom-right (desktop) / bottom-center (mobile ≤768px)
+    //   - Duração: 3500ms default; sticky (0) para error/warning/loading
+    //   - Dismissible: error/warning = true; resto = false
+    //   - TRIM FIFO: se já há MAX_TOASTS, fecha o mais antigo
+    //   - MUTEX: novo não-loading fecha todos os loading ativos
+    //   - A11y: error/warning chamam App.announce('assertive'); success/info/
+    //     loading são anunciados polite pelo `.notyf-announcer` built-in do Notyf
+    //     (NÃO duplicar announce para estes tipos).
+    //   - Ícones Unicode (✓ ✕ ⚠ ℹ ⏳) — sem re-render Lucide
+    // ─────────────────────────────────────────────────────────────────────
+    _notyf: null,
+    _activeToasts: [],
+    _MAX_TOASTS: 5,
+
+    /**
+     * Inicializa o Notyf (lazy, singleton). Configura 5 tipos com ícones Unicode,
+     * posições desktop e comportamento sticky. Adiciona aria-label aos botões
+     * dismiss existentes (Notyf não faz isso out-of-the-box).
+     * @returns {Notyf}
+     */
+    _initNotyf() {
+        if (this._notyf) return this._notyf;
+        this._notyf = new Notyf({
+            duration: 3500,
+            ripple: true,
+            position: { x: 'right', y: 'bottom' },
+            dismissible: false,
+            types: [
+                { type: 'success', icon: { className: 'notyf__icon--success', tagName: 'i', text: '✓' } },
+                { type: 'error',   icon: { className: 'notyf__icon--error',   tagName: 'i', text: '✕' } },
+                { type: 'warning', icon: { className: 'notyf__icon--warning', tagName: 'i', text: '⚠' }, duration: 0, dismissible: true },
+                { type: 'info',    icon: { className: 'notyf__icon--info',    tagName: 'i', text: 'ℹ' } },
+                { type: 'loading', icon: { className: 'notyf__icon--loading', tagName: 'i', text: '⏳' }, duration: 0, dismissible: false },
+            ],
+        });
+        // Adiciona aria-label aos botões dismiss já existentes no DOM
+        // (Notyf cria o container .notyf no init; este setTimeout cobre o caso
+        // de botões renderizados antes da primeira chamada de toast()).
+        setTimeout(() => {
+            document.querySelectorAll('.notyf__dismiss-btn').forEach((btn) => {
+                if (!btn.getAttribute('aria-label')) btn.setAttribute('aria-label', 'Fechar notificação');
+            });
+        }, 100);
+        return this._notyf;
+    },
+
+    /**
+     * Mostra um toast. Faz TRIM FIFO (max 5), MUTEX loading, sticky
+     * automático para error/warning/loading, posicionamento responsivo
+     * e a11y announce para error/warning.
+     * @param {'success'|'error'|'warning'|'info'|'loading'} type
+     * @param {string} title — título principal
+     * @param {string} [description] — linha secundária (opcional, combinada com " — ")
+     * @returns {NotyfNotification}
+     */
+    toast(type = 'info', title, description = null) {
+        this._initNotyf();
+
+        // TRIM FIFO: se já tem MAX, fecha o mais antigo
+        while (this._activeToasts.length >= this._MAX_TOASTS) {
+            const oldest = this._activeToasts.shift();
+            if (oldest) this._notyf.dismiss(oldest);
+        }
+
+        // Mensagem combinada (Notyf só aceita uma string)
+        const message = description ? `${title} — ${description}` : title;
+
+        // A11y: error/warning interrompem via assertive (Notyf só tem polite
+        // via .notyf-announcer; nós adicionamos o assertive manualmente).
+        if (type === 'error' || type === 'warning') {
+            this.announce(message, 'assertive');
+        }
+        // success/info/loading: Notyf já anuncia polite. NÃO duplicar.
+
+        // Sticky: error / warning / loading (duration 0)
+        const isSticky = (type === 'error' || type === 'warning' || type === 'loading');
+
+        // MUTEX: se há loading aberto e novo não-loading, fecha o loading
+        if (type !== 'loading') {
+            this._activeToasts
+                .filter((t) => t.options && t.options.type === 'loading')
+                .forEach((loading) => this._notyf.dismiss(loading));
+        }
+
+        const opts = {
+            type,
+            message,
+            duration: isSticky ? 0 : 3500,
+            dismissible: (type === 'error' || type === 'warning'),
+            position: { x: window.innerWidth < 768 ? 'center' : 'right', y: 'bottom' },
+        };
+        const notif = this._notyf.open(opts);
+        this._activeToasts.push(notif);
+
+        // Remove do array quando o toast for dispensado (auto ou manual)
+        notif.on('dismiss', () => {
+            const i = this._activeToasts.indexOf(notif);
+            if (i !== -1) this._activeToasts.splice(i, 1);
+        });
+
+        // Garante aria-label no botão dismiss (Notyf cria novo DOM a cada toast
+        // dismissible; este setTimeout roda após a injeção do nó no DOM).
+        setTimeout(() => {
+            const btn = notif && notif.el && notif.el.querySelector && notif.el.querySelector('.notyf__dismiss-btn');
+            if (btn && !btn.getAttribute('aria-label')) btn.setAttribute('aria-label', 'Fechar notificação');
+        }, 50);
+
+        return notif;
+    },
+
+    /**
+     * Fecha todos os toasts ativos e limpa o array de tracking.
+     */
+    dismissAllToasts() {
+        if (this._notyf) this._notyf.dismissAll();
+        this._activeToasts = [];
     },
 
     /**
@@ -586,16 +698,19 @@ const App = {
                 ...data.entity.properties,
             };
             const node = Graph.addNode(nodeData, options.position || (options.x && options.y ? { x: options.x, y: options.y } : null));
-            this.setStatus(`Entidade ${type} "${value}" criada.`, 'success');
+            this.toast('success', `Entidade ${type} "${value}" criada.`);
             return node;
         } catch (err) {
-            this.setStatus(err.message, 'error');
+            this.toast('error', err.message);
             throw err;
         }
     },
 
     async runTransform(node, transformName) {
-        this.setStatus(`Executando ${transformName}...`);
+        // Issue #124: loading sticky (duration 0) enquanto o transform roda.
+        // Notyf garante MUTEX: se um novo toast não-loading chega, o loading
+        // é fechado automaticamente (ver App.toast).
+        this.toast('loading', `Executando transform…`);
         try {
             const result = await OpenMAPI.runTransform(
                 node.id,
@@ -632,12 +747,9 @@ const App = {
             });
 
             Graph.addElements({ nodes: newNodes, edges: newEdges });
-            this.setStatus(
-                `Transform concluído: +${newNodes.length} entidades, +${newEdges.length} vínculos.`,
-                'success',
-            );
+            this.toast('success', `Transform concluído: +${newNodes.length} entidades, +${newEdges.length} vínculos.`);
         } catch (err) {
-            this.setStatus(err.message, 'error');
+            this.toast('error', err.message);
         }
     },
 
@@ -648,7 +760,7 @@ const App = {
                 await this.runTransform(node, t.name);
             }
         } catch (err) {
-            this.setStatus(err.message, 'error');
+            this.toast('error', err.message);
         }
     },
 
@@ -663,10 +775,10 @@ const App = {
             if (node.length) {
                 node.data(newProps);
             }
-            this.setStatus('Propriedades atualizadas.', 'success');
+            this.toast('success', 'Propriedades atualizadas.');
             Inspector.showNode(node.data());
         } catch (err) {
-            this.setStatus(err.message, 'error');
+            this.toast('error', err.message);
         }
     },
 
@@ -674,10 +786,10 @@ const App = {
         try {
             await OpenMAPI.deleteEntity(id);
             Graph.removeNode(id);
-            this.setStatus('Entidade removida.', 'success');
+            this.toast('success', 'Entidade removida.');
             Inspector.showEmpty();
         } catch (err) {
-            this.setStatus(err.message, 'error');
+            this.toast('error', err.message);
         }
     },
 
@@ -685,10 +797,10 @@ const App = {
         try {
             await OpenMAPI.deleteEdge(id);
             Graph.removeEdge(id);
-            this.setStatus('Vínculo removido.', 'success');
+            this.toast('success', 'Vínculo removido.');
             Inspector.showEmpty();
         } catch (err) {
-            this.setStatus(err.message, 'error');
+            this.toast('error', err.message);
         }
     },
 
@@ -752,10 +864,10 @@ const App = {
                     try {
                         if (isArchived) {
                             await OpenMAPI.unarchiveInvestigation(id);
-                            this.setStatus('Investigação desarquivada.', 'success');
+                            this.toast('success', 'Investigação desarquivada.');
                         } else {
                             await OpenMAPI.archiveInvestigation(id);
-                            this.setStatus('Investigação arquivada.', 'success');
+                            this.toast('success', 'Investigação arquivada.');
                             // Se era a investigation aberta, para auto-save
                             if (AutoSave.currentInvestigationId === id) {
                                 AutoSave.stop();
@@ -763,7 +875,7 @@ const App = {
                         }
                         this.loadInvestigations();
                     } catch (err) {
-                        this.setStatus(err.message, 'error');
+                        this.toast('error', err.message);
                     }
                 });
 
@@ -782,7 +894,7 @@ const App = {
                 li.addEventListener('click', () => this.openInvestigation(id));
             });
         } catch (err) {
-            this.setStatus(err.message, 'error');
+            this.toast('error', err.message);
         }
     },
 
@@ -802,14 +914,14 @@ const App = {
             await OpenMAPI.deleteInvestigation(id);
         } catch (err) {
             if (err.status === 404) {
-                this.setStatus('Investigação não encontrada.', 'error');
+                this.toast('error', 'Investigação não encontrada.');
                 await this.loadInvestigations();
                 return;
             }
-            this.setStatus(`Erro ao excluir: ${err.message}`, 'error');
+            this.toast('error', `Erro ao excluir: ${err.message}`);
             return;
         }
-        this.setStatus('Investigação excluída.', 'success');
+        this.toast('success', 'Investigação excluída.');
 
         // Se era a investigation aberta, parar auto-save + limpar grafo.
         if (AutoSave.currentInvestigationId === id) {
@@ -828,7 +940,7 @@ const App = {
     async openInvestigation(id) {
         // Salva a investigation atual antes de trocar (se houver mudanças)
         if (AutoSave.currentInvestigationId && AutoSave.currentInvestigationId !== id && AutoSave.hasChanges) {
-            this.setStatus('Salvando investigation atual antes de trocar...', 'info');
+            this.toast('info', 'Salvando investigation atual antes de trocar...');
             await AutoSave.tick();
         }
 
@@ -850,10 +962,10 @@ const App = {
             // começa a partir desta versão)
             AutoSave.start(id, inv.version);
 
-            this.setStatus(`Investigação "${inv.title}" carregada.`, 'success');
+            this.toast('success', `Investigação "${inv.title}" carregada.`);
             this.loadInvestigations();  // atualiza "current" marker
         } catch (err) {
-            this.setStatus(err.message, 'error');
+            this.toast('error', err.message);
         }
     },
 
@@ -865,11 +977,11 @@ const App = {
         // Se tem uma investigation aberta, salva nela
         if (AutoSave.currentInvestigationId) {
             try {
-                this.setStatus('Salvando...', 'info');
+                this.toast('info', 'Salvando...');
                 await AutoSave.tick();
-                this.setStatus('✓ Investigation salva.', 'success');
+                this.toast('success', 'Investigation salva.');
             } catch (err) {
-                this.setStatus(err.message, 'error');
+                this.toast('error', err.message);
             }
             return;
         }
@@ -887,7 +999,7 @@ const App = {
         const finalTitle = (title != null ? title : (document.getElementById('inv-title')?.value || '')).trim();
         const finalDesc = (description != null ? description : (document.getElementById('inv-desc')?.value || '')).trim();
         if (!finalTitle) {
-            this.setStatus('Título é obrigatório', 'error');
+            this.toast('error', 'Título é obrigatório');
             return null;
         }
         try {
@@ -912,7 +1024,7 @@ const App = {
                 AutoSave.start(savedId, initialVersion);
             }
 
-            this.setStatus(`✓ Investigação "${savedTitle}" criada e salva.`, 'success');
+            this.toast('success', `Investigação "${savedTitle}" criada e salva.`);
             // Só limpa o DOM se foi lido do DOM (chamada sem args).
             if (title == null) {
                 const titleEl = document.getElementById('inv-title');
@@ -923,7 +1035,7 @@ const App = {
             this.loadInvestigations();
             return result?.investigation || null;
         } catch (err) {
-            this.setStatus(err.message, 'error');
+            this.toast('error', err.message);
             return null;
         }
     },
@@ -974,13 +1086,13 @@ const App = {
                         if (confirm(`Remover chave ${id}?`)) {
                             await OpenMAPI.deleteKey(id);
                             this.loadKeys();
-                            this.setStatus('Chave removida.', 'success');
+                            this.toast('success', 'Chave removida.');
                         }
                     });
                 }
             });
         } catch (err) {
-            this.setStatus(err.message, 'error');
+            this.toast('error', err.message);
         }
     },
 
@@ -989,16 +1101,16 @@ const App = {
         const value = document.getElementById('key-value').value.trim();
         const type = document.getElementById('key-type').value;
         if (!value) {
-            this.setStatus('Chave é obrigatória', 'error');
+            this.toast('error', 'Chave é obrigatória');
             return;
         }
         try {
             await OpenMAPI.saveKey(service, value, type);
-            this.setStatus(`Chave ${service} salva.`, 'success');
+            this.toast('success', `Chave ${service} salva.`);
             document.getElementById('key-value').value = '';
             this.loadKeys();
         } catch (err) {
-            this.setStatus(err.message, 'error');
+            this.toast('error', err.message);
         }
     },
 
@@ -1012,7 +1124,7 @@ const App = {
         a.download = `openm-graph-${Date.now()}.json`;
         a.click();
         URL.revokeObjectURL(url);
-        this.setStatus('Grafo exportado.', 'success');
+        this.toast('success', 'Grafo exportado.');
     },
 
     importGraph() {
@@ -1027,7 +1139,7 @@ const App = {
                     const data = JSON.parse(reader.result);
                     Graph.importJson(data);
                 } catch (err) {
-                    this.setStatus('JSON inválido: ' + err.message, 'error');
+                    this.toast('error', 'JSON inválido: ' + err.message);
                 }
             };
             reader.readAsText(file);
@@ -1047,7 +1159,7 @@ const App = {
             if (window.Graph && typeof window.Graph.exportPng === 'function') {
                 window.Graph.exportPng();
             } else {
-                this.setStatus('Export PNG indisponível.', 'error');
+                this.toast('error', 'Export PNG indisponível.');
             }
         });
 
@@ -1287,6 +1399,12 @@ const App = {
                     }
                     setTimeout(() => document.getElementById('so-close')?.focus(), 0);
                 }
+            } else if (e.key === 'Escape' && this._activeToasts && this._activeToasts.length > 0) {
+                // Issue #124: Esc fecha o toast mais recente (acessibilidade).
+                // Roda por último no handler para que drawers (palette/inspector)
+                // e o <dialog> de atalhos capturem Esc primeiro.
+                const latest = this._activeToasts[this._activeToasts.length - 1];
+                if (latest && this._notyf) this._notyf.dismiss(latest);
             }
         });
 

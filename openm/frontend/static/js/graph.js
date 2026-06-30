@@ -276,14 +276,14 @@ const Graph = {
                                 rel_type,
                                 properties,
                             });
-                            App.setStatus(`Vínculo ${rel_type} criado.`, 'success');
+                            App.toast('success', `Vínculo ${rel_type} criado.`);
                             this.pushUndo({
                                 type: 'add_edge',
                                 data: { id: addedEdge.id(), source: sourceNode.id(), target: targetNode.id(), label: rel_type },
                             });
                         } catch (err) {
                             addedEdge.remove();
-                            App.setStatus(`Erro ao criar vínculo: ${err.message}`, 'error');
+                            App.toast('error', `Erro ao criar vínculo: ${err.message}`);
                         }
                     },
                 });
@@ -333,7 +333,7 @@ const Graph = {
                     content: '<i class="fa-solid fa-copy"></i> Copy value',
                     select: (ele) => {
                         navigator.clipboard.writeText(ele.data('label') || ele.data('value') || '');
-                        App.setStatus('Valor copiado.', 'success');
+                        App.toast('success', 'Valor copiado.');
                     },
                 },
                 { content: '---' },
@@ -574,7 +574,7 @@ const Graph = {
         if (node.length) {
             cy.elements().removeClass('dimmed');
             node.addClass('dimmed'); // marcador visual
-            App.setStatus(`Nó ${node.data('label')} definido como root.`, 'success');
+            App.toast('success', `Nó ${node.data('label')} definido como root.`);
         }
     },
 
@@ -635,7 +635,7 @@ const Graph = {
                 cy.elements().remove();
                 this._suppressDirty = false;
                 if (window.AutoSave) window.AutoSave.stop();
-                App.setStatus('Grafo limpo.', 'info');
+                App.toast('info', 'Grafo limpo.');
             },
         });
     },
@@ -687,7 +687,7 @@ const Graph = {
             this.addEdge(action.data.id, action.data.source, action.data.target, action.data.label, action.data);
             redoStack.push(action);
         }
-        App.setStatus('Ação desfeita.', 'info');
+        App.toast('info', 'Ação desfeita.');
     },
 
     redo() {
@@ -703,7 +703,7 @@ const Graph = {
             this.removeEdge(action.data.id);
             undoStack.push(action);
         }
-        App.setStatus('Ação refeita.', 'info');
+        App.toast('info', 'Ação refeita.');
     },
 
     exportJson() {
@@ -722,7 +722,7 @@ const Graph = {
         cy.add([...nodes, ...edges]);
         this._suppressDirty = false;
         this.relayout();
-        App.setStatus(`Importado: ${nodes.length} nós, ${edges.length} arestas.`, 'success');
+        App.toast('success', `Importado: ${nodes.length} nós, ${edges.length} arestas.`);
     },
 
     /**
@@ -896,8 +896,8 @@ const Graph = {
         }
         this._layoutEngine = name;
         const label = name === 'fcose' ? 'fcose (rápido)' : 'cose-bilkent (padrão)';
-        if (window.App && typeof window.App.setStatus === 'function') {
-            window.App.setStatus(`Layout engine: ${label}.`, 'info');
+        if (window.App && typeof window.App.toast === 'function') {
+            window.App.toast('info', `Layout engine: ${label}.`);
         }
     },
 
@@ -908,14 +908,14 @@ const Graph = {
      */
     async exportPng() {
         if (!cy) {
-            if (window.App && window.App.setStatus) {
-                window.App.setStatus('Grafo não inicializado.', 'error');
+            if (window.App && window.App.toast) {
+                window.App.toast('error', 'Grafo não inicializado.');
             }
             return;
         }
         if (typeof cy.png !== 'function') {
-            if (window.App && window.App.setStatus) {
-                window.App.setStatus('Export PNG indisponível nesta versão.', 'error');
+            if (window.App && window.App.toast) {
+                window.App.toast('error', 'Export PNG indisponível nesta versão.');
             }
             return;
         }
@@ -937,8 +937,8 @@ const Graph = {
             document.body.removeChild(a);
             URL.revokeObjectURL(url);
             if (window.App) {
-                if (typeof window.App.setStatus === 'function') {
-                    window.App.setStatus('PNG exportado.', 'success');
+                if (typeof window.App.toast === 'function') {
+                    window.App.toast('success', 'PNG exportado.');
                 }
                 if (typeof window.App.announce === 'function') {
                     window.App.announce('PNG exportado', 'polite');
@@ -946,8 +946,8 @@ const Graph = {
             }
         } catch (err) {
             console.error('Falha ao exportar PNG:', err);
-            if (window.App && typeof window.App.setStatus === 'function') {
-                window.App.setStatus('Falha ao exportar PNG: ' + (err && err.message || err), 'error');
+            if (window.App && typeof window.App.toast === 'function') {
+                window.App.toast('error', 'Falha ao exportar PNG: ' + (err && err.message || err));
             }
         }
     },
