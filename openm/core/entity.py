@@ -1,3 +1,4 @@
+import re
 import uuid
 from datetime import datetime, timezone
 from typing import Any, Dict, Optional
@@ -144,11 +145,32 @@ class Breach(Entity):
     entity_type = "Breach"
 
 
+class MACAddress(Entity):
+    """Endereco MAC (Media Access Control) de uma interface de rede.
+
+    ``value`` deve ser um MAC em qualquer formato comum
+    (XX:XX:XX:XX:XX:XX, XX-XX-XX-XX-XX-XX, XXXX.XXXX.XXXX ou 12
+    digitos sem separador). O prefixo OUI de 24 bits e gravado em
+    ``properties["oui"]`` e o fabricante e inferido a partir de uma
+    tabela embutida (IEEE OUI) por ``MacVendorTransform``.
+    """
+    entity_type = "MACAddress"
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        # Extrai OUI (3 primeiros bytes) do value normalizado.
+        cleaned = re.sub(r"[^0-9A-Fa-f]", "", self.value or "").upper()
+        if len(cleaned) == 12:
+            self.properties.setdefault(
+                "oui", ":".join(cleaned[i:i+2] for i in range(0, 6, 2))
+            )
+
+
 # Mapeamento de tipo-string para classe, usado pela API e pelos transforms.
 ENTITY_CLASSES = {
     cls.entity_type: cls
     for cls in [
         IPAddress, Email, Domain, Person, BankAccount, Device, URL, FileHash,
-        DnsRecord, Breach,
+        DnsRecord, Breach, MACAddress,
     ]
 }

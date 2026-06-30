@@ -16,6 +16,7 @@ from .hibp import HibpTransform
 from .urlscan import UrlscanTransform
 from .person_discovery import PersonToDomainTransform
 from .iban_swift import IbanSwiftTransform
+from .mac_vendor import MacVendorTransform
 
 __all__ = [
     "ResolveIPTransform",
@@ -36,4 +37,5 @@ __all__ = [
     "UrlscanTransform",
     "PersonToDomainTransform",
     "IbanSwiftTransform",
+    "MacVendorTransform",
 ]
