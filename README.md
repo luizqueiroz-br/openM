@@ -339,6 +339,49 @@ Defina `OPENM_SIMULATED_BRAZIL=1` no `.env` para usar fixtures locais (`tests/fi
 
 ---
 
+## 🎨 Frontend Redesign
+
+A interface do OpenM está em redesign focado em 4 frentes: **acessibilidade WCAG 2.2 AA**, **responsividade** (mobile/tablet), **produtividade** (mini-map, toasts, command palette) e **visual moderno** (dark/light toggle, Lucide icons, Web Awesome). O redesign preserva a arquitetura vanilla (sem build step, sem React/Vue) e atualiza o Cytoscape de 3.26 → 3.31.
+
+### Marcos planejados
+
+- **`v1.0-frontend "Grafo+"`** — Quick wins: Cytoscape 3.31 + mini-map + export PNG/SVG, sistema de toasts, undo/redo expandido.
+- **`v1.0.1-frontend "Tema"`** — Design System com 14 tokens oklch + 8 famílias entity + dark/light toggle. Web Awesome 3.9+ (5 componentes). WCAG 2.2 AA foundations.
+- **`v1.1-frontend "OSINT"`** — Inspector 3-tabs (Overview/Properties/Sightings) com Timeline, Transform Hub em árvore (8 categorias), Graph Search & Filter Panel.
+- **`v1.1.x-frontend "Mobile"`** — Responsividade em 5 breakpoints (mobile <640 single-col+drawer), Command Palette (Cmd+K).
+- **`v1.2-frontend`** — Onboarding tour + 4 templates de investigation (opcional).
+
+### Issues abertas (11)
+
+| # | Issue | Milestone |
+|---|---|---|
+| [#123](https://github.com/luizqueiroz-br/openM/issues/123) | Canvas upgrade (Cytoscape 3.31 + plugins + export) | v1.0-frontend "Grafo+" |
+| [#124](https://github.com/luizqueiroz-br/openM/issues/124) | Sistema de Toasts (Notyf) | v1.0-frontend "Grafo+" |
+| [#125](https://github.com/luizqueiroz-br/openM/issues/125) | Undo/Redo expandido (cytoscape-undo-redo) | v1.0-frontend "Grafo+" |
+| [#126](https://github.com/luizqueiroz-br/openM/issues/126) | Design System & Theming (CSS tokens + dark/light + oklch) | v1.0.1-frontend "Tema" |
+| [#127](https://github.com/luizqueiroz-br/openM/issues/127) | Web Awesome adoption (5 componentes) | v1.0.1-frontend "Tema" |
+| [#128](https://github.com/luizqueiroz-br/openM/issues/128) | WCAG 2.2 AA foundations | v1.0.1-frontend "Tema" |
+| [#129](https://github.com/luizqueiroz-br/openM/issues/129) | Inspector 3-tabs + Timeline | v1.1-frontend "OSINT" |
+| [#130](https://github.com/luizqueiroz-br/openM/issues/130) | Transform Hub em árvore (sidebar tab 2) | v1.1-frontend "OSINT" |
+| [#131](https://github.com/luizqueiroz-br/openM/issues/131) | Graph Search & Filter Panel (Fuse.js + checkboxes) | v1.1-frontend "OSINT" |
+| [#132](https://github.com/luizqueiroz-br/openM/issues/132) | Responsividade básica (5 breakpoints + drawer mobile) | v1.1.x-frontend "Mobile" |
+| [#133](https://github.com/luizqueiroz-br/openM/issues/133) | Command Palette (cmdk-wc, Cmd+K) | v1.1.x-frontend "Mobile" |
+| [#134](https://github.com/luizqueiroz-br/openM/issues/134) | Onboarding tour + 4 templates de investigation | v1.2-frontend |
+
+### Decisões-chave
+
+- **Manter Cytoscape.js** (atualizar 3.26 → 3.31.1) e os plugins atuais. NÃO migrar para Sigma.js/G6/Reagraph/react-flow.
+- **Adotar Web Awesome 3.9+** como design system (Web Components, MIT, CDN, dark/light nativo, ARIA built-in).
+- **Sem build step** (preservar vanilla JS + `window.*`). Nenhuma framework reativa (React/Vue/Svelte).
+- **CSS custom properties em `oklch()`** com variantes dark/light via `[data-theme]`.
+- **Substituir Font Awesome por Lucide** (1-2 KB inline, melhor estética Maltego-like).
+
+### Documentação detalhada
+
+Plano consolidado: [docs/ISSUES_FRONTEND_REDESIGN.md](docs/ISSUES_FRONTEND_REDESIGN.md)
+
+---
+
 ## 🛣️ Roadmap
 
 ### ✅ Já entregue
@@ -361,6 +404,16 @@ Defina `OPENM_SIMULATED_BRAZIL=1` no `.env` para usar fixtures locais (`tests/fi
 - [ ] **#119** Transform CVM Cadastro Companhias Abertas
 - [ ] **#120** Transform Portal da Transparência — Sanções (CEIS/CNEP/CEPIM)
 - [ ] **#121** LGPD Privacy Gate (audit + opt-in + banner + data export)
+
+### 🎨 Em planejamento — Frontend Redesign
+
+5 milestones do redesign frontend (issues #123-#134):
+
+- [ ] [`v1.0-frontend "Grafo+"`](https://github.com/luizqueiroz-br/openM/milestone/6) — Cytoscape 3.31 + mini-map + export PNG/SVG, toasts Notyf, undo/redo expandido (#123-#125)
+- [ ] [`v1.0.1-frontend "Tema"`](https://github.com/luizqueiroz-br/openM/milestone/7) — Design System oklch + dark/light, Web Awesome, WCAG 2.2 AA (#126-#128)
+- [ ] [`v1.1-frontend "OSINT"`](https://github.com/luizqueiroz-br/openM/milestone/8) — Inspector 3-tabs, Transform Hub, Graph Search (#129-#131)
+- [ ] [`v1.1.x-frontend "Mobile"`](https://github.com/luizqueiroz-br/openM/milestone/9) — Responsividade + Command Palette (#132-#133)
+- [ ] [`v1.2-frontend`](https://github.com/luizqueiroz-br/openM/milestone/10) — Onboarding tour + 4 templates (#134, opcional)
 
 ### 🔮 Próximas (v1.1+)
 

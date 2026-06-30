@@ -2,41 +2,236 @@
    OpenM - Dark Theme (estilo Maltego)
    ============================================================== */
 
-:root {
-    --bg-deep: #0a0e1a;
-    --bg-panel: #131826;
-    --bg-card: #1c2235;
-    --bg-card-hover: #252c44;
-    --bg-elev: #2a3148;
-    --border: #2a3148;
-    --border-strong: #3b4566;
+/* ============================================================================
+   OpenM Design System — Tokens (issue #126)
+   Convenção: oklch() para variação perceptual uniforme entre dark/light.
+   Fallback: hex line acima do oklch() para browsers < Safari 15.4.
+   ============================================================================ */
 
-    --text: #e2e8f0;
-    --text-dim: #94a3b8;
-    --text-faint: #64748b;
+:root,
+:root[data-theme="dark"] {
+    /* Base — backgrounds */
+    --bg-deep:        #0a0e1a;
+    --bg-deep:        oklch(15% 0.018 257);
+    --bg-panel:       #131826;
+    --bg-panel:       oklch(20% 0.022 257);
+    --bg-card:        #1c2235;
+    --bg-card:        oklch(24% 0.026 257);
+    --bg-card-hover:  #252c44;
+    --bg-card-hover:  oklch(28% 0.030 257);
+    --bg-elev:        #2a3148;
+    --bg-elev:        oklch(31% 0.034 257);
+    --bg-elev2:       #2a2a2a;
+    --bg-elev2:       oklch(28% 0.000 0);
+    --bg-input:       var(--bg-card);
+    --bg-canvas:      #0f1525;
+    --bg-canvas:      oklch(17% 0.025 257);
+    --bg-canvas-deep: #050810;
+    --bg-canvas-deep: oklch(10% 0.030 257);
 
-    --accent: #38bdf8;
-    --accent-2: #818cf8;
-    --hot: #f472b6;
-    --success: #22c55e;
-    --warn: #fbbf24;
-    --danger: #ef4444;
+    /* Base — borders */
+    --border:         #2a3148;
+    --border:         oklch(31% 0.034 257);
+    --border-strong:  #3b4566;
+    --border-strong:  oklch(40% 0.038 257);
 
-    --c-domain: #38bdf8;
-    --c-ip: #22c55e;
-    --c-email: #f472b6;
-    --c-person: #a78bfa;
-    --c-bank: #fbbf24;
-    --c-device: #fb923c;
-    --c-generic: #64748b;
+    /* Base — text */
+    --text:           #e2e8f0;
+    --text:           oklch(93% 0.012 257);
+    --text-dim:       #94a3b8;
+    --text-dim:       oklch(72% 0.018 257);
+    --text-faint:     #64748b;
+    --text-faint:     oklch(55% 0.022 257);
+
+    /* Base — accent */
+    --accent:         #38bdf8;
+    --accent:         oklch(75% 0.135 230);
+    --accent-strong:  #0ea5e9;
+    --accent-strong:  oklch(67% 0.150 230);
+    --accent-2:       #818cf8;
+    --accent-2:       oklch(70% 0.135 277);
+    --hot:            #f472b6;
+    --hot:            oklch(75% 0.155 350);
+    --hot-strong:     #ff6b78;
+    --hot-strong:     oklch(68% 0.165 25);
+
+    /* Base — status */
+    --success:        #22c55e;
+    --success:        oklch(72% 0.150 145);
+    --warn:           #fbbf24;
+    --warn:           oklch(82% 0.150 80);
+    --danger:         #ef4444;
+    --danger:         oklch(65% 0.190 25);
+    --info:           #38bdf8;
+    --info:           oklch(75% 0.135 230);
+
+    /* Role badges (admin / analyst / viewer) */
+    --role-admin:        #dc3545;
+    --role-admin:        oklch(60% 0.190 25);
+    --role-analyst:      #0d6efd;
+    --role-analyst:      oklch(60% 0.180 257);
+    --role-viewer:       #6c757d;
+    --role-viewer:       oklch(55% 0.010 257);
+
+    /* Entity types — 23 entidades (8 famílias semânticas) */
+    /* Rede (azul/ciano) */
+    --c-domain:        #38bdf8;
+    --c-domain:        oklch(75% 0.135 230);
+    --c-ip:            #22c55e;
+    --c-ip:            oklch(72% 0.150 145);
+    --c-url:           #06b6d4;
+    --c-url:           oklch(72% 0.110 200);
+    --c-dns:           #22d3ee;
+    --c-dns:           oklch(80% 0.090 195);
+    /* Identidade (violeta) */
+    --c-person:        #a78bfa;
+    --c-person:        oklch(75% 0.130 285);
+    --c-pessoa-fisica: #8b5cf6;
+    --c-pessoa-fisica: oklch(65% 0.150 285);
+    --c-pessoa-juridica: #7c3aed;
+    --c-pessoa-juridica: oklch(58% 0.155 285);
+    /* Empresas (verde-azulado) */
+    --c-empresa:       #34d399;
+    --c-empresa:       oklch(75% 0.130 165);
+    --c-estabelecimento: #10b981;
+    --c-estabelecimento: oklch(70% 0.130 165);
+    --c-cnpj:          #059669;
+    --c-cnpj:          oklch(60% 0.130 165);
+    --c-companhia-aberta: #047857;
+    --c-companhia-aberta: oklch(50% 0.130 165);
+    --c-acao:          #22c55e;
+    --c-acao:          oklch(72% 0.150 145);
+    --c-ticker:        #16a34a;
+    --c-ticker:        oklch(65% 0.150 145);
+    /* Jurídico (vermelho) */
+    --c-processo:      #fb7185;
+    --c-processo:      oklch(70% 0.140 15);
+    --c-movimentacao:  #f43f5e;
+    --c-movimentacao:  oklch(65% 0.180 15);
+    --c-sancao:        #e11d48;
+    --c-sancao:        oklch(60% 0.190 15);
+    --c-orgao:         #be123c;
+    --c-orgao:         oklch(50% 0.190 15);
+    /* Geo (âmbar) */
+    --c-endereco:      #fbbf24;
+    --c-endereco:      oklch(82% 0.150 80);
+    --c-municipio:     #f59e0b;
+    --c-municipio:     oklch(75% 0.150 70);
+    /* Comunicação (fúcsia) */
+    --c-email:         #f472b6;
+    --c-email:         oklch(75% 0.155 350);
+    --c-phone:         #ec4899;
+    --c-phone:         oklch(70% 0.155 350);
+    /* Financeiro (verde) */
+    --c-bank:          #fbbf24;
+    --c-bank:          oklch(82% 0.150 80);
+    --c-macro:         #84cc16;
+    --c-macro:         oklch(75% 0.150 110);
+    --c-indicador:     #84cc16;
+    --c-indicador:     oklch(75% 0.150 110);
+    /* Segurança (vermelho puro) */
+    --c-device:        #fb923c;
+    --c-device:        oklch(75% 0.150 50);
+    --c-file-hash:     #ef4444;
+    --c-file-hash:     oklch(65% 0.190 25);
+    --c-breach:        #dc2626;
+    --c-breach:        oklch(58% 0.200 25);
+    --c-mac:           #b91c1c;
+    --c-mac:           oklch(50% 0.200 25);
+    /* Generic / fallback */
+    --c-generic:       #64748b;
+    --c-generic:       oklch(55% 0.022 257);
 
     /* Issue #6 — destaque visual para entidades flagged por VirusTotal */
-    --c-flagged: #ef4444;
+    --c-flagged:       #ef4444;
+    --c-flagged:       oklch(65% 0.190 25);
 
-    --radius: 6px;
+    /* Edge families (5 famílias semânticas) */
+    --edge-parentesco:    oklch(70% 0.130 285);  /* violeta */
+    --edge-transacao:     oklch(72% 0.150 145);  /* verde */
+    --edge-regulatorio:   oklch(65% 0.190 25);   /* vermelho */
+    --edge-tecnico:       oklch(75% 0.135 230);  /* ciano */
+    --edge-social:        oklch(75% 0.155 350);  /* rosa */
+
+    /* Spacing scale (11 tokens) */
+    --space-0:  0;
+    --space-1:  0.25rem;  /* 4px */
+    --space-2:  0.5rem;   /* 8px */
+    --space-3:  0.75rem;  /* 12px */
+    --space-4:  1rem;     /* 16px */
+    --space-5:  1.5rem;   /* 24px */
+    --space-6:  2rem;     /* 32px */
+    --space-7:  3rem;     /* 48px */
+    --space-8:  4rem;     /* 64px */
+    --space-9:  6rem;     /* 96px */
+    --space-10: 8rem;     /* 128px */
+
+    /* Typography scale (8 tokens) */
+    --text-2xs: 0.6875rem;  /* 11px */
+    --text-xs:  0.75rem;    /* 12px */
+    --text-sm:  0.8125rem;  /* 13px */
+    --text-base: 0.875rem;  /* 14px */
+    --text-md:  1rem;       /* 16px */
+    --text-lg:  1.125rem;   /* 18px */
+    --text-xl:  1.25rem;    /* 20px */
+    --text-2xl: 1.5rem;     /* 24px */
+    --text-3xl: 1.875rem;   /* 30px */
+
+    /* Radius (5 tokens) */
+    --radius-sm: 4px;
+    --radius:    6px;
     --radius-lg: 10px;
-    --shadow: 0 4px 16px rgba(0, 0, 0, 0.4);
-    --shadow-lg: 0 8px 32px rgba(0, 0, 0, 0.6);
+    --radius-xl: 16px;
+    --radius-full: 9999px;
+
+    /* Shadow (4 levels) */
+    --shadow-sm:  0 1px 2px oklch(0% 0 0 / 0.30);
+    --shadow:     0 4px 16px oklch(0% 0 0 / 0.40);
+    --shadow-lg:  0 8px 32px oklch(0% 0 0 / 0.60);
+    --shadow-xl:  0 16px 48px oklch(0% 0 0 / 0.70);
+
+    /* Focus ring (a11y) */
+    --focus-ring: 0 0 0 2px var(--bg-deep), 0 0 0 4px var(--accent);
+
+    /* Motion (5 durations + 4 easings) */
+    --duration-fast:   120ms;
+    --duration-base:   200ms;
+    --duration-slow:   320ms;
+    --duration-slower: 480ms;
+    --ease-out:        cubic-bezier(0.16, 1, 0.3, 1);
+    --ease-in-out:     cubic-bezier(0.4, 0, 0.2, 1);
+    --ease-spring:     cubic-bezier(0.34, 1.56, 0.64, 1);
+    --ease-linear:     linear;
+}
+
+:root[data-theme="light"] {
+    --bg-deep:        oklch(98.5% 0.005 257);
+    --bg-panel:       oklch(96% 0.008 257);
+    --bg-card:        #ffffff;
+    --bg-card:        oklch(100% 0 0);
+    --bg-card-hover:  oklch(94% 0.012 257);
+    --bg-elev:        #ffffff;
+    --bg-elev:        oklch(100% 0 0);
+    --bg-elev2:       oklch(96% 0.010 257);
+    --bg-canvas:      oklch(95% 0.012 257);
+    --bg-canvas-deep: oklch(92% 0.018 257);
+    --border:         oklch(88% 0.012 257);
+    --border-strong:  oklch(75% 0.015 257);
+    --text:           oklch(20% 0.012 257);
+    --text-dim:       oklch(40% 0.012 257);
+    --text-faint:     oklch(55% 0.020 257);
+    --accent:         oklch(60% 0.170 230);
+    --accent-strong:  oklch(55% 0.180 230);
+    --accent-2:       oklch(60% 0.170 277);
+    --hot:            oklch(70% 0.180 350);
+    --hot-strong:     oklch(65% 0.190 25);
+    --success:        oklch(58% 0.150 145);
+    --warn:           oklch(70% 0.150 80);
+    --danger:         oklch(60% 0.200 25);
+    --info:           oklch(60% 0.170 230);
+    --shadow:         0 4px 16px oklch(0% 0 0 / 0.10);
+    --shadow-lg:      0 8px 32px oklch(0% 0 0 / 0.12);
+    --focus-ring:     0 0 0 2px var(--bg-deep), 0 0 0 4px var(--accent);
 }
 
 * { box-sizing: border-box; }
@@ -51,6 +246,11 @@ html, body {
     color: var(--text);
     background: var(--bg-deep);
     -webkit-font-smoothing: antialiased;
+    /* Smooth theme switch (issue #126) — only animates bg + text to avoid
+       transitioning 1000 properties. Respects prefers-reduced-motion via
+       the global override near the end of the file. */
+    transition: background-color var(--duration-base) var(--ease-out),
+                color var(--duration-base) var(--ease-out);
 }
 
 .mono { font-family: 'JetBrains Mono', 'Courier New', monospace; }
@@ -419,7 +619,7 @@ html, body {
 .btn:hover { background: var(--bg-card-hover); border-color: var(--border-strong); }
 .btn:active { transform: translateY(1px); }
 .btn.primary { background: var(--accent); color: var(--bg-deep); border-color: var(--accent); font-weight: 600; }
-.btn.primary:hover { background: #0ea5e9; }
+.btn.primary:hover { background: var(--accent-strong); }
 .btn.danger { color: var(--danger); border-color: var(--danger); }
 .btn.danger:hover { background: var(--danger); color: var(--bg-deep); }
 .btn.icon { padding: 0.4rem 0.55rem; }
@@ -444,7 +644,7 @@ input, select, textarea {
 input:focus, select:focus, textarea:focus {
     outline: none;
     border-color: var(--accent);
-    box-shadow: 0 0 0 2px rgba(56, 189, 248, 0.2);
+    box-shadow: 0 0 0 2px color-mix(in oklch, var(--accent) 20%, transparent);
 }
 
 label {
@@ -465,7 +665,7 @@ label {
 
 .canvas-area {
     position: relative;
-    background: radial-gradient(circle at center, #0f1525 0%, #050810 100%);
+    background: radial-gradient(circle at center, var(--bg-canvas) 0%, var(--bg-canvas-deep) 100%);
     overflow: hidden;
 }
 
@@ -483,7 +683,7 @@ label {
     display: flex;
     gap: 0.4rem;
     z-index: 10;
-    background: rgba(19, 24, 38, 0.9);
+    background: color-mix(in oklch, var(--bg-panel) 90%, transparent);
     padding: 0.4rem;
     border-radius: var(--radius);
     border: 1px solid var(--border);
@@ -558,7 +758,7 @@ label {
 .modal-backdrop {
     position: fixed;
     inset: 0;
-    background: rgba(0, 0, 0, 0.7);
+    background: oklch(0% 0 0 / 0.7);
     display: flex;
     align-items: center;
     justify-content: center;
@@ -734,7 +934,7 @@ label {
 .flagged {
     display: inline-block;
     padding: 0.1rem 0.4rem;
-    background: rgba(239, 68, 68, 0.15);
+    background: color-mix(in oklch, var(--danger) 15%, transparent);
     border: 1px solid var(--c-flagged);
     border-radius: 4px;
     font-size: 0.7rem;
@@ -820,8 +1020,8 @@ label {
     height: 100vh;
     overflow: hidden;
     background:
-        radial-gradient(ellipse at top, rgba(56, 189, 248, 0.08), transparent 60%),
-        radial-gradient(ellipse at bottom, rgba(129, 140, 248, 0.06), transparent 60%),
+        radial-gradient(ellipse at top, color-mix(in oklch, var(--accent) 8%, transparent), transparent 60%),
+        radial-gradient(ellipse at bottom, color-mix(in oklch, var(--accent-2) 6%, transparent), transparent 60%),
         var(--bg-deep);
 }
 
@@ -892,7 +1092,7 @@ label {
 .auth-error {
     margin-top: 0.75rem;
     padding: 0.6rem 0.75rem;
-    background: rgba(239, 68, 68, 0.1);
+    background: color-mix(in oklch, var(--danger) 10%, transparent);
     border: 1px solid var(--danger);
     border-radius: var(--radius);
     color: var(--danger);
@@ -963,27 +1163,27 @@ label {
     font-weight: 600;
     text-transform: uppercase;
     letter-spacing: 0.05em;
-    background: var(--bg-elev2, #2a2a2a);
-    color: var(--text-dim, #888);
-    border: 1px solid var(--border, #333);
+    background: var(--bg-elev2);
+    color: var(--text-dim);
+    border: 1px solid var(--border);
 }
 
 .topbar .user-info .role-badge[data-role="admin"] {
-    background: rgba(220, 53, 69, 0.15);
-    color: #ff6b78;
-    border-color: rgba(220, 53, 69, 0.4);
+    background: color-mix(in oklch, var(--role-admin) 15%, transparent);
+    color: var(--hot-strong);
+    border-color: color-mix(in oklch, var(--role-admin) 40%, transparent);
 }
 
 .topbar .user-info .role-badge[data-role="analyst"] {
-    background: rgba(13, 110, 253, 0.15);
-    color: #6ea8fe;
-    border-color: rgba(13, 110, 253, 0.4);
+    background: color-mix(in oklch, var(--role-analyst) 15%, transparent);
+    color: var(--accent);
+    border-color: color-mix(in oklch, var(--role-analyst) 40%, transparent);
 }
 
 .topbar .user-info .role-badge[data-role="viewer"] {
-    background: rgba(108, 117, 125, 0.15);
-    color: #adb5bd;
-    border-color: rgba(108, 117, 125, 0.4);
+    background: color-mix(in oklch, var(--role-viewer) 15%, transparent);
+    color: var(--text-dim);
+    border-color: color-mix(in oklch, var(--role-viewer) 40%, transparent);
 }
 
 /* ==============================================================
@@ -1001,9 +1201,9 @@ label {
 }
 
 #admin-error {
-    background: rgba(220, 53, 69, 0.12);
-    color: #ff6b78;
-    border: 1px solid rgba(220, 53, 69, 0.3);
+    background: color-mix(in oklch, var(--role-admin) 12%, transparent);
+    color: var(--hot-strong);
+    border: 1px solid color-mix(in oklch, var(--role-admin) 30%, transparent);
     border-radius: 4px;
     padding: 0.4rem 0.6rem;
     margin-bottom: 0.5rem;
@@ -1020,8 +1220,8 @@ label {
 .admin-table thead th {
     text-align: left;
     padding: 0.4rem 0.3rem;
-    border-bottom: 1px solid var(--border, #333);
-    color: var(--text-dim, #888);
+    border-bottom: 1px solid var(--border);
+    color: var(--text-dim);
     font-weight: 600;
     text-transform: uppercase;
     font-size: 0.7rem;
@@ -1030,12 +1230,12 @@ label {
 
 .admin-table tbody td {
     padding: 0.4rem 0.3rem;
-    border-bottom: 1px solid var(--border, #333);
+    border-bottom: 1px solid var(--border);
     vertical-align: middle;
 }
 
 .admin-table tbody tr:hover {
-    background: rgba(255, 255, 255, 0.03);
+    background: oklch(100% 0 0 / 0.03);
 }
 
 .admin-col-email {
@@ -1044,7 +1244,7 @@ label {
 }
 
 .admin-col-created {
-    color: var(--text-dim, #888);
+    color: var(--text-dim);
     white-space: nowrap;
 }
 
@@ -1056,9 +1256,9 @@ label {
 
 .admin-col-actions select {
     padding: 0.2rem 0.3rem;
-    background: var(--bg-elev2, #2a2a2a);
-    color: var(--text, #eee);
-    border: 1px solid var(--border, #333);
+    background: var(--bg-elev2);
+    color: var(--text);
+    border: 1px solid var(--border);
     border-radius: 3px;
     font-size: 0.75rem;
     cursor: pointer;
@@ -1079,23 +1279,23 @@ label {
 }
 
 .admin-col-actions .btn.primary {
-    background: rgba(13, 110, 253, 0.25);
-    color: #6ea8fe;
-    border: 1px solid rgba(13, 110, 253, 0.5);
+    background: color-mix(in oklch, var(--role-analyst) 25%, transparent);
+    color: var(--accent);
+    border: 1px solid color-mix(in oklch, var(--role-analyst) 50%, transparent);
 }
 
 .admin-col-actions .btn.primary:hover {
-    background: rgba(13, 110, 253, 0.4);
+    background: color-mix(in oklch, var(--role-analyst) 40%, transparent);
 }
 
 .admin-col-actions .btn.danger {
-    background: rgba(220, 53, 69, 0.2);
-    color: #ff6b78;
-    border: 1px solid rgba(220, 53, 69, 0.4);
+    background: color-mix(in oklch, var(--role-admin) 20%, transparent);
+    color: var(--hot-strong);
+    border: 1px solid color-mix(in oklch, var(--role-admin) 40%, transparent);
 }
 
 .admin-col-actions .btn.danger:hover {
-    background: rgba(220, 53, 69, 0.35);
+    background: color-mix(in oklch, var(--role-admin) 35%, transparent);
 }
 
 .admin-col-actions .btn:disabled {
@@ -1105,7 +1305,7 @@ label {
 
 .admin-empty {
     text-align: center;
-    color: var(--text-dim, #888);
+    color: var(--text-dim);
     font-style: italic;
     padding: 0.8rem 0.3rem;
 }
@@ -1119,25 +1319,151 @@ label {
     font-weight: 600;
     text-transform: uppercase;
     letter-spacing: 0.05em;
-    background: var(--bg-elev2, #2a2a2a);
-    color: var(--text-dim, #888);
-    border: 1px solid var(--border, #333);
+    background: var(--bg-elev2);
+    color: var(--text-dim);
+    border: 1px solid var(--border);
 }
 
 .admin-table .role-badge[data-role="admin"] {
-    background: rgba(220, 53, 69, 0.15);
-    color: #ff6b78;
-    border-color: rgba(220, 53, 69, 0.4);
+    background: color-mix(in oklch, var(--role-admin) 15%, transparent);
+    color: var(--hot-strong);
+    border-color: color-mix(in oklch, var(--role-admin) 40%, transparent);
 }
 
 .admin-table .role-badge[data-role="analyst"] {
-    background: rgba(13, 110, 253, 0.15);
-    color: #6ea8fe;
-    border-color: rgba(13, 110, 253, 0.4);
+    background: color-mix(in oklch, var(--role-analyst) 15%, transparent);
+    color: var(--accent);
+    border-color: color-mix(in oklch, var(--role-analyst) 40%, transparent);
 }
 
 .admin-table .role-badge[data-role="viewer"] {
-    background: rgba(108, 117, 125, 0.15);
-    color: #adb5bd;
-    border-color: rgba(108, 117, 125, 0.4);
+    background: color-mix(in oklch, var(--role-viewer) 15%, transparent);
+    color: var(--text-dim);
+    border-color: color-mix(in oklch, var(--role-viewer) 40%, transparent);
+}
+
+/* ============================================================================
+   prefers-reduced-motion — desabilita animações
+   ============================================================================ */
+@media (prefers-reduced-motion: reduce) {
+    *,
+    *::before,
+    *::after {
+        animation-duration: 0.01ms !important;
+        animation-iteration-count: 1 !important;
+        transition-duration: 0.01ms !important;
+        scroll-behavior: auto !important;
+    }
+}
+
+/* ============================================================================
+   prefers-color-scheme — fallback para primeira visita
+   Quando o usuário NÃO escolheu tema explicitamente, respeita o sistema.
+   ============================================================================ */
+@media (prefers-color-scheme: light) {
+    :root:not([data-theme]) {
+        color-scheme: light;
+    }
+}
+
+@media (prefers-color-scheme: dark) {
+    :root:not([data-theme]) {
+        color-scheme: dark;
+    }
+}
+
+/* ============================================================================
+   Fallback para color-mix() — browsers sem suporte (Safari < 16.2)
+   Nestes browsers, color-mix() é inválido e ignorado; mantemos rgba() legados
+   via @supports abaixo para garantir que bordas/textos continuem visíveis.
+   ============================================================================ */
+@supports not (color: color-mix(in oklch, red, blue)) {
+    /* Se o browser não entende color-mix, fornecemos um fallback mínimo
+       de opacidade. Os tokens compostos (ex.: --focus-ring) já têm hex fallback. */
+
+    input:focus,
+    select:focus,
+    textarea:focus {
+        box-shadow: 0 0 0 2px rgba(56, 189, 248, 0.2);
+    }
+
+    .modal-backdrop {
+        background: rgba(0, 0, 0, 0.7);
+    }
+
+    .flagged {
+        background: rgba(239, 68, 68, 0.15);
+    }
+
+    .auth-body {
+        background:
+            radial-gradient(ellipse at top, rgba(56, 189, 248, 0.08), transparent 60%),
+            radial-gradient(ellipse at bottom, rgba(129, 140, 248, 0.06), transparent 60%),
+            var(--bg-deep);
+    }
+
+    .auth-error {
+        background: rgba(239, 68, 68, 0.1);
+    }
+
+    .admin-table tbody tr:hover {
+        background: rgba(255, 255, 255, 0.03);
+    }
+
+    .canvas-overlay {
+        background: rgba(19, 24, 38, 0.9);
+    }
+
+    .topbar .user-info .role-badge[data-role="admin"] {
+        background: rgba(220, 53, 69, 0.15);
+        border-color: rgba(220, 53, 69, 0.4);
+    }
+
+    .topbar .user-info .role-badge[data-role="analyst"] {
+        background: rgba(13, 110, 253, 0.15);
+        border-color: rgba(13, 110, 253, 0.4);
+    }
+
+    .topbar .user-info .role-badge[data-role="viewer"] {
+        background: rgba(108, 117, 125, 0.15);
+        border-color: rgba(108, 117, 125, 0.4);
+    }
+
+    .admin-table .role-badge[data-role="admin"] {
+        background: rgba(220, 53, 69, 0.15);
+        border-color: rgba(220, 53, 69, 0.4);
+    }
+
+    .admin-table .role-badge[data-role="analyst"] {
+        background: rgba(13, 110, 253, 0.15);
+        border-color: rgba(13, 110, 253, 0.4);
+    }
+
+    .admin-table .role-badge[data-role="viewer"] {
+        background: rgba(108, 117, 125, 0.15);
+        border-color: rgba(108, 117, 125, 0.4);
+    }
+
+    #admin-error {
+        background: rgba(220, 53, 69, 0.12);
+        border: 1px solid rgba(220, 53, 69, 0.3);
+    }
+
+    .admin-col-actions .btn.primary {
+        background: rgba(13, 110, 253, 0.25);
+        border: 1px solid rgba(13, 110, 253, 0.5);
+    }
+
+    .admin-col-actions .btn.primary:hover {
+        background: rgba(13, 110, 253, 0.4);
+    }
+
+    .admin-col-actions .btn.danger {
+        background: rgba(220, 53, 69, 0.2);
+        border: 1px solid rgba(220, 53, 69, 0.4);
+    }
+
+    .admin-col-actions .btn.danger:hover {
+        background: rgba(220, 53, 69, 0.35);
+    }
 }
