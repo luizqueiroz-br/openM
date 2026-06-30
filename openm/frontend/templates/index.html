@@ -13,6 +13,9 @@
     <!-- Web Awesome 3.9+ (issue #127) — design system base -->
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@awesome.me/awesome@3/css/awesome.min.css" />
 
+    <!-- Fuse.js 7.x (issue #131) — busca fuzzy -->
+    <script src="{{ url_for('static', filename='vendor/fuse.min.js') }}"></script>
+
     <!-- Cytoscape.js + plugins (locais para ordem determinística) -->
     <script src="{{ url_for('static', filename='vendor/cytoscape.min.js') }}"></script>
     <script src="{{ url_for('static', filename='vendor/cytoscape-cose-bilkent.js') }}"></script>
@@ -28,6 +31,7 @@
         <a href="#palette" class="skip-link">Pular para a navegação</a>
         <a href="#canvas" class="skip-link">Pular para o grafo</a>
         <a href="#inspector" class="skip-link">Pular para os detalhes</a>
+        <a href="#graph-search-panel" class="skip-link">Pular para busca e filtro</a>
     </nav>
 
     <div class="app-shell">
@@ -40,6 +44,9 @@
             <div class="toolbar">
                 <button class="btn icon" id="btn-fit" title="Ajustar à tela (F)"><i data-lucide="maximize-2"></i></button>
                 <button class="btn icon" id="btn-clear" title="Limpar grafo" data-roles="admin,analyst"><i data-lucide="trash-2"></i></button>
+                <button id="btn-search-panel" class="btn icon" type="button" title="Buscar e filtrar (Cmd+F)" aria-label="Abrir painel de busca e filtro" aria-pressed="false" aria-expanded="false">
+                    <i data-lucide="filter" aria-hidden="true"></i>
+                </button>
                 <button class="btn icon" id="btn-undo" title="Desfazer (Ctrl+Z)" data-roles="admin,analyst"><i data-lucide="rotate-ccw"></i></button>
                 <button class="btn icon" id="btn-redo" title="Refazer (Ctrl+Y)" data-roles="admin,analyst"><i data-lucide="rotate-cw"></i></button>
                 <button class="btn icon" id="btn-save" title="Salvar investigação" data-roles="admin,analyst"><i data-lucide="save"></i></button>
@@ -160,6 +167,51 @@
                         <span id="node-count">0</span> nós
                     </div>
                 </div>
+
+                <!-- Graph Search & Filter Panel (issue #131) -->
+                <aside id="graph-search-panel" class="graph-search-panel collapsed" aria-label="Busca e filtro do grafo">
+                    <header class="gsp-header">
+                        <h2 class="gsp-title">Busca &amp; Filtro</h2>
+                        <button id="btn-search-panel-close" type="button" class="btn icon" aria-label="Fechar painel de busca">
+                            <i data-lucide="x" aria-hidden="true"></i>
+                        </button>
+                    </header>
+
+                    <div class="gsp-search">
+                        <i data-lucide="search" class="gsp-search-icon" aria-hidden="true"></i>
+                        <input type="text" id="graph-search-input" class="gsp-search-input" placeholder="Buscar nodes por label ou propriedade..." aria-label="Buscar nodes no grafo" autocomplete="off" spellcheck="false">
+                        <span id="graph-search-count" class="gsp-search-count" aria-live="polite">0 matches</span>
+                    </div>
+
+                    <fieldset class="gsp-types">
+                        <legend class="gsp-section-label">Tipos de entidade</legend>
+                        <div id="graph-search-types" class="gsp-types-list" role="group" aria-label="Filtrar por tipo de entidade">
+                            <!-- 23 checkboxes gerados via JS (Lane 3) -->
+                        </div>
+                    </fieldset>
+
+                    <fieldset class="gsp-neighborhood">
+                        <legend class="gsp-section-label">Vizinhança do nó selecionado</legend>
+                        <label class="gsp-toggle-row">
+                            <input type="checkbox" id="graph-search-neighborhood-toggle" class="gsp-toggle-input" aria-describedby="gsp-neighborhood-help">
+                            <span class="gsp-toggle-label">Mostrar apenas vizinhos</span>
+                        </label>
+                        <select id="graph-search-neighborhood-depth" class="gsp-select" aria-label="Profundidade da vizinhança">
+                            <option value="1">Profundidade 1 (direto)</option>
+                            <option value="2">Profundidade 2 (2 saltos)</option>
+                            <option value="3">Profundidade 3 (3 saltos)</option>
+                        </select>
+                        <small id="gsp-neighborhood-help" class="gsp-help">Requer um nó selecionado. Esconde todos os outros nodes e arestas conectadas.</small>
+                    </fieldset>
+
+                    <footer class="gsp-footer">
+                        <button id="graph-search-clear" type="button" class="btn sm" aria-label="Limpar todos os filtros e busca">
+                            <i data-lucide="rotate-ccw" aria-hidden="true"></i>
+                            Limpar tudo
+                        </button>
+                    </footer>
+                </aside>
+
                 <div id="cy" role="application" tabindex="0" aria-label="Grafo interativo de entidades. Use Tab para navegar entre os nós, Enter para abrir detalhes, Escape para limpar seleção."></div>
             </section>
 
@@ -196,6 +248,7 @@
     <script src="{{ url_for('static', filename='js/modals.js') }}"></script>
     <script src="{{ url_for('static', filename='js/inspector.js') }}"></script>
     <script src="{{ url_for('static', filename='js/palette.js') }}"></script>
+    <script src="{{ url_for('static', filename='js/search-panel.js') }}"></script>
     <script src="{{ url_for('static', filename='js/graph.js') }}"></script>
     <script src="{{ url_for('static', filename='js/admin.js') }}"></script>
     <script src="{{ url_for('static', filename='js/auth.js') }}"></script>

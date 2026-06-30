@@ -254,13 +254,28 @@
     border: 0 !important;
 }
 
+/* Skip links: escondidos por padrão, visíveis ao receber foco */
+.skip-link {
+    position: absolute !important;
+    width: 1px !important;
+    height: 1px !important;
+    padding: 0 !important;
+    margin: -1px !important;
+    overflow: hidden !important;
+    clip: rect(0, 0, 0, 0) !important;
+    white-space: nowrap !important;
+    border: 0 !important;
+    color: transparent !important;
+    background: transparent !important;
+}
+
 /* Visível ao receber foco (para skip links) */
 .sr-only-focusable:focus,
 .sr-only-focusable:focus-within,
 .skip-link:focus,
 .skip-link:focus-within {
     position: fixed !important;
-    top: 0.5rem !important;
+    top: 60px !important;
     left: 0.5rem !important;
     z-index: 9999 !important;
     width: auto !important;
@@ -812,6 +827,277 @@ label {
     color: var(--text-dim);
     padding: 0.3rem 0.5rem;
     text-align: center;
+}
+
+/* ============================================================================
+   Graph Search & Filter Panel (issue #131)
+   ============================================================================ */
+.graph-search-panel {
+    position: absolute;
+    top: 1rem;
+    right: 1rem;
+    z-index: 11;
+    width: 300px;
+    max-height: calc(100% - 2rem);
+    background: var(--bg-panel);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    box-shadow: var(--shadow-lg);
+    overflow-y: auto;
+    overflow-x: hidden;
+    display: flex;
+    flex-direction: column;
+    gap: 0.75rem;
+    padding: 0.75rem;
+    transition: width var(--duration-base) var(--ease-out),
+                padding var(--duration-base) var(--ease-out),
+                opacity var(--duration-base) var(--ease-out);
+}
+
+.graph-search-panel.collapsed {
+    width: 0;
+    min-width: 0;
+    max-width: 0;
+    padding: 0;
+    border: 0;
+    opacity: 0;
+    pointer-events: none;
+    overflow: hidden;
+}
+
+.gsp-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.5rem;
+    padding-bottom: 0.5rem;
+    border-bottom: 1px solid var(--border);
+}
+
+.gsp-title {
+    margin: 0;
+    font-size: var(--text-md);
+    font-weight: 600;
+    color: var(--text);
+    flex: 1;
+}
+
+.gsp-header .btn.icon {
+    min-width: 32px;
+    min-height: 32px;
+    padding: 0.3rem;
+    color: var(--text-dim);
+}
+
+.gsp-header .btn.icon:hover {
+    color: var(--text);
+    background: var(--bg-card-hover);
+}
+
+.gsp-search {
+    position: relative;
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+}
+
+.gsp-search-icon {
+    position: absolute;
+    left: 0.6rem;
+    color: var(--text-faint);
+    pointer-events: none;
+    width: 16px;
+    height: 16px;
+}
+
+.gsp-search-input {
+    flex: 1;
+    padding: 0.5rem 0.6rem 0.5rem 2rem;
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    color: var(--text);
+    font-size: var(--text-sm);
+    min-height: 36px;
+}
+
+.gsp-search-input::placeholder {
+    color: var(--text-faint);
+}
+
+.gsp-search-count {
+    font-size: var(--text-xs);
+    color: var(--text-faint);
+    font-variant-numeric: tabular-nums;
+    white-space: nowrap;
+}
+
+.gsp-types,
+.gsp-neighborhood {
+    border: 0;
+    padding: 0;
+    margin: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+}
+
+.gsp-section-label {
+    font-size: var(--text-xs);
+    font-weight: 700;
+    color: var(--text-faint);
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+    padding-bottom: 0.25rem;
+}
+
+.gsp-types-list {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    max-height: 280px;
+    overflow-y: auto;
+}
+
+.gsp-type-row {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    padding: 0.4rem 0.5rem;
+    border-radius: var(--radius-sm);
+    cursor: pointer;
+    transition: background-color var(--duration-fast) var(--ease-out);
+    user-select: none;
+    min-height: 32px;
+}
+
+.gsp-type-row:hover {
+    background: var(--bg-card-hover);
+}
+
+.gsp-type-checkbox {
+    margin: 0;
+    width: 16px;
+    height: 16px;
+    accent-color: var(--accent);
+    cursor: pointer;
+    flex-shrink: 0;
+}
+
+.gsp-type-swatch {
+    width: 10px;
+    height: 10px;
+    border-radius: var(--radius-full);
+    flex-shrink: 0;
+    border: 1px solid var(--border);
+}
+
+.gsp-type-label {
+    flex: 1;
+    font-size: var(--text-sm);
+    color: var(--text);
+    font-family: var(--font-mono);
+}
+
+.gsp-type-count {
+    font-size: var(--text-xs);
+    color: var(--text-faint);
+    font-variant-numeric: tabular-nums;
+    min-width: 28px;
+    text-align: right;
+}
+
+.gsp-toggle-row {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    cursor: pointer;
+    padding: 0.4rem 0.5rem;
+    border-radius: var(--radius-sm);
+    min-height: 32px;
+}
+
+.gsp-toggle-row:hover {
+    background: var(--bg-card-hover);
+}
+
+.gsp-toggle-input {
+    margin: 0;
+    width: 16px;
+    height: 16px;
+    accent-color: var(--accent);
+    cursor: pointer;
+}
+
+.gsp-toggle-label {
+    font-size: var(--text-sm);
+    color: var(--text);
+    user-select: none;
+}
+
+.gsp-select {
+    width: 100%;
+    padding: 0.4rem 0.6rem;
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    color: var(--text);
+    font-size: var(--text-sm);
+    min-height: 36px;
+}
+
+.gsp-help {
+    font-size: var(--text-xs);
+    color: var(--text-faint);
+    font-style: italic;
+    line-height: 1.4;
+}
+
+.gsp-footer {
+    display: flex;
+    justify-content: flex-end;
+    padding-top: 0.5rem;
+    border-top: 1px solid var(--border);
+}
+
+.gsp-footer .btn.sm {
+    min-height: 32px;
+    padding: 0.3rem 0.6rem;
+    font-size: var(--text-xs);
+    gap: 0.3rem;
+}
+
+/* Scrollbar fina para lista de checkboxes (issue #128 já tem global, refinar) */
+.gsp-types-list::-webkit-scrollbar {
+    width: 6px;
+}
+.gsp-types-list::-webkit-scrollbar-track {
+    background: transparent;
+}
+.gsp-types-list::-webkit-scrollbar-thumb {
+    background: var(--border);
+    border-radius: var(--radius-full);
+}
+.gsp-types-list::-webkit-scrollbar-thumb:hover {
+    background: var(--border-strong);
+}
+
+/* Mobile: panel vira full-width overlay */
+@media (max-width: 768px) {
+    .graph-search-panel {
+        top: 0.5rem;
+        right: 0.5rem;
+        left: 0.5rem;
+        width: auto;
+        max-width: none;
+    }
+}
+
+/* Topbar search-panel toggle button (issue #131) */
+#btn-search-panel[aria-pressed="true"] {
+    background: var(--accent-soft, oklch(72% 0.15 220 / 0.20));
+    color: var(--accent);
+    border-color: var(--accent);
 }
 
 /* ==============================================================

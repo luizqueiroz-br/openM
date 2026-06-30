@@ -653,6 +653,13 @@ const App = {
             // Carrega snapshot no Graph (com fallback se for legacy/null)
             Graph.loadSnapshot(inv.graph_snapshot);
 
+            // Issue #131: notifica o painel de busca/filtro para que possa
+            // restaurar o estado persistido (search, types ocultos, vizinhança)
+            // do localStorage keyed by investigation id.
+            if (window.SearchPanel && typeof window.SearchPanel.setInvestigationId === 'function') {
+                window.SearchPanel.setInvestigationId(id);
+            }
+
             // Inicia auto-save com a versão atual (issue #37 — If-Match
             // começa a partir desta versão)
             AutoSave.start(id, inv.version);
@@ -952,6 +959,11 @@ const App = {
         Inspector.init();
         Palette.init();
         Graph.init('cy');
+        // Issue #131: inicializa o painel de busca/filtro depois do Graph
+        // (precisa de window.cy para bind dos listeners de add/remove).
+        if (window.SearchPanel && typeof window.SearchPanel.init === 'function') {
+            window.SearchPanel.init();
+        }
         this.bindTopbar();
         this.loadInvestigations();
         this.loadKeyServices();

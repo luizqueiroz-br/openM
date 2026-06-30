@@ -169,6 +169,17 @@ const Graph = {
                 },
             },
             {
+                // Issue #131: nó que casa com a busca fuzzy (Fuse.js)
+                // ganha borda accent cyan para destaque visual.
+                selector: 'node.cy-node-match',
+                style: {
+                    'border-width': 3,
+                    'border-color': '#38bdf8',
+                    'border-style': 'solid',
+                    'border-opacity': 1,
+                },
+            },
+            {
                 selector: 'node.dimmed',
                 style: { 'opacity': 0.25 },
             },
@@ -729,6 +740,29 @@ const Graph = {
             `Selecionado: ${label}, tipo ${type}${flagged}`,
             'polite'
         );
+    },
+
+    /**
+     * Get the BFS neighborhood of a node up to `depth` levels.
+     * Issue #131: powers the "show only selected neighborhood" toggle.
+     * @param {string} id — node id
+     * @param {number} depth — 1, 2, or 3
+     * @returns {object} — Cytoscape Collection of matched nodes (incl. root)
+     */
+    getNeighborhood(id, depth = 1) {
+        if (!window.cy) return null;
+        const root = window.cy.getElementById(id);
+        if (!root || !root.length) return null;
+        const maxDepth = Math.max(1, Math.min(3, depth));
+        let visited = root.collection();
+        let frontier = root;
+        for (let d = 0; d < maxDepth; d++) {
+            const next = frontier.neighborhood().difference(visited);
+            if (!next.length) break;
+            visited = visited.union(next);
+            frontier = next;
+        }
+        return visited;
     },
 };
 
