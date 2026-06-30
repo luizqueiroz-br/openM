@@ -41,6 +41,11 @@
                 <div class="logo"><i data-lucide="git-fork"></i></div>
                 <span>OpenM</span>
             </div>
+            <!-- Hamburger (issue #132 — Lane 3 / JS) — visível só em <=1024px
+                 Abre a sidebar esquerda (palette) como drawer mobile. -->
+            <button class="btn icon mobile-only" id="btn-hamburger" type="button" title="Abrir sidebar (Cmd+B)" aria-label="Abrir sidebar de entidades, investigações, transforms e admin" aria-expanded="false" aria-controls="palette">
+                <i data-lucide="menu" aria-hidden="true"></i>
+            </button>
             <div class="toolbar">
                 <button class="btn icon" id="btn-fit" title="Ajustar à tela (F)"><i data-lucide="maximize-2"></i></button>
                 <button class="btn icon" id="btn-clear" title="Limpar grafo" data-roles="admin,analyst"><i data-lucide="trash-2"></i></button>
@@ -52,6 +57,9 @@
                 <button class="btn icon" id="btn-save" title="Salvar investigação" data-roles="admin,analyst"><i data-lucide="save"></i></button>
                 <button class="btn icon" id="btn-export" title="Exportar JSON"><i data-lucide="download"></i></button>
                 <button class="btn icon" id="btn-import" title="Importar JSON" data-roles="admin,analyst"><i data-lucide="upload"></i></button>
+                <!-- Inspector toggle (issue #132 — Lane 3 / JS) — visível só em <=1024px.
+                     Abre o inspector direito como drawer mobile. -->
+                <button class="btn icon mobile-only" id="btn-toggle-inspector" type="button" title="Alternar inspector (Cmd+I)" aria-label="Abrir inspector de detalhes" aria-pressed="false" aria-expanded="false" aria-controls="inspector"><i data-lucide="panel-right" aria-hidden="true"></i></button>
                 <input type="file" id="file-input" accept="application/json" style="display:none" aria-hidden="true" aria-label="Selecionar arquivo JSON para importar investigação">
             </div>
             <div class="spacer"></div>
@@ -268,6 +276,13 @@
                     </div>
                 </div>
             </aside>
+
+            <!-- Responsive drawer overlays (issue #132 — Lane 3 / JS)
+                 Backdrops clicáveis que fecham os drawers em <=1024px.
+                 aria-hidden="true" por padrão; toggleSidebar/toggleInspector
+                 alternam para false quando abrem. -->
+            <div id="sidebar-overlay" class="sidebar-overlay" aria-hidden="true"></div>
+            <div id="inspector-overlay" class="sidebar-overlay" aria-hidden="true"></div>
         </main>
 
         <!-- ============================================ STATUSBAR -->

@@ -1473,6 +1473,233 @@ label {
     }
 }
 
+/* ==============================================================
+   Responsividade (issue #132)
+   Estratégia: desktop-first com `max-width` (o layout base já é
+   desktop). As media queries abaixo são aplicadas em ORDEM
+   DECRESCENTE (wide → mobile) — a primeira que casar vence.
+   Breakpoints:
+     ≥ 1537px  : wide     — workspace 320 / 1fr / 380
+     1281-1536 : desktop  — workspace 280 / 1fr / 320 (atual)
+     1025-1280 : laptop   — workspace 240 / 1fr / 300
+     769-1024  : tablet   — sidebars viram drawers 320/360
+     481-768   : mobile+  — drawer 85vw, topbar 4 botões
+     ≤ 480     : mobile   — hamburger, statusbar mínimo
+   ============================================================== */
+
+/* === Responsive: wide (≥1537px) === */
+@media (min-width: 1537px) {
+    .workspace {
+        grid-template-columns: 320px 1fr 380px;
+    }
+}
+
+/* === Responsive: laptop (1025-1280px) === */
+@media (max-width: 1280px) {
+    .workspace {
+        grid-template-columns: 240px 1fr 300px;
+    }
+}
+
+/* === Responsive: tablet (769-1024px) === */
+@media (max-width: 1024px) {
+    /* Sidebars deixam o grid e viram drawers */
+    .workspace {
+        grid-template-columns: 1fr;
+    }
+
+    .sidebar {
+        position: fixed;
+        top: 48px;
+        bottom: 28px;
+        z-index: 100;
+        width: 85vw;
+        max-width: 320px;
+        background: var(--bg-panel);
+        transition: transform 200ms ease-out, box-shadow 200ms ease-out;
+        box-shadow: var(--shadow-lg);
+    }
+
+    .sidebar.left {
+        left: 0;
+        right: auto;
+        transform: translateX(-100%);
+        border-right: 1px solid var(--border);
+    }
+
+    .sidebar.right {
+        right: 0;
+        left: auto;
+        transform: translateX(100%);
+        border-left: 1px solid var(--border);
+        max-width: 360px;
+    }
+
+    .sidebar.left.open,
+    .sidebar.right.open {
+        transform: translateX(0);
+    }
+
+    /* Overlay do drawer (backdrop) */
+    .sidebar-overlay {
+        position: fixed;
+        inset: 48px 0 28px 0;
+        background: oklch(0% 0 0 / 0.5);
+        z-index: 99;
+        opacity: 0;
+        pointer-events: none;
+        transition: opacity 200ms ease-out;
+        backdrop-filter: blur(2px);
+    }
+
+    .sidebar-overlay.show {
+        opacity: 1;
+        pointer-events: auto;
+    }
+
+    /* Canvas fica "fora de foco" quando drawer abre */
+    .canvas-area[aria-hidden="true"] {
+        opacity: 0.3;
+        transition: opacity 200ms ease-out;
+    }
+
+    /* Bottom-right overlay (zoom info) vira fixed acima da statusbar */
+    .canvas-overlay.bottom-right {
+        position: fixed;
+        bottom: 36px;
+        right: 0.5rem;
+        z-index: 50;
+    }
+}
+
+/* === Responsive: mobile+ (481-768px) === */
+@media (max-width: 768px) {
+    /* Topbar: esconde toolbar cheio, mostra só essenciais
+       (hamburger, brand, search-panel, theme, user) */
+    .topbar .toolbar {
+        display: none;
+    }
+
+    /* Drawers fullscreen-like em mobile */
+    .sidebar {
+        width: 85vw;
+        max-width: none;
+    }
+
+    .sidebar.left {
+        max-width: 320px;
+    }
+
+    .sidebar.right {
+        max-width: 320px;
+    }
+
+    /* Statusbar: esconde hint longo */
+    #status-hint {
+        display: none;
+    }
+
+    /* Força touch targets 44x44 (WCAG 2.2 SC 2.5.5) */
+    .btn.icon {
+        min-width: 44px;
+        min-height: 44px;
+    }
+
+    .topbar .btn.icon {
+        min-width: 44px;
+        min-height: 44px;
+        padding: 0.5rem 0.65rem;
+    }
+
+    /* Esconde scrollbar nativa dos drawers em mobile */
+    .sidebar::-webkit-scrollbar {
+        display: none;
+    }
+    .sidebar {
+        scrollbar-width: none;
+    }
+}
+
+/* === Responsive: mobile pequeno (≤480px) === */
+@media (max-width: 480px) {
+    /* Topbar mais compacto: só brand, hamburger, theme, logout */
+    .topbar {
+        gap: 0.5rem;
+        padding: 0 0.5rem;
+    }
+
+    .topbar .conn {
+        display: none;
+    }
+
+    .topbar .user-info span:not(.role-badge) {
+        display: none;
+    }
+
+    /* Drawer ocupa quase a tela toda */
+    .sidebar.left,
+    .sidebar.right {
+        width: 90vw;
+        max-width: none;
+    }
+
+    /* Search panel não cobre a tela toda */
+    .graph-search-panel {
+        max-height: 60vh;
+        overflow-y: auto;
+    }
+
+    /* Bottom-right overlay mais alto (afasta do edge) */
+    .canvas-overlay.bottom-right {
+        bottom: 32px;
+        right: 0.25rem;
+    }
+
+    /* Garante que a statusbar caiba em uma linha */
+    .statusbar {
+        font-size: 0.72rem;
+        gap: 0.5rem;
+        padding: 0 0.5rem;
+    }
+
+    /* Hamburger (visível só em ≤768px, mas com tamanho extra aqui) */
+    #btn-hamburger.btn.icon {
+        min-width: 44px;
+        min-height: 44px;
+    }
+}
+
+/* === Responsive: helper classes (issue #132 — Lane 3 / JS) ===
+   `.mobile-only` esconde um elemento em desktop e exibe em <=1024px.
+   Usado pelos botões #btn-hamburger e #btn-toggle-inspector que só fazem
+   sentido em viewport mobile/tablet (em desktop, o grid CSS já mostra
+   ambas as sidebars permanentemente). */
+.mobile-only {
+    display: none;
+}
+
+@media (max-width: 1024px) {
+    .mobile-only {
+        display: inline-flex;
+    }
+}
+
+/* LGPD / consent banner (se existir) — fullscreen em mobile */
+@media (max-width: 480px) {
+    .lgpd,
+    .consent {
+        position: fixed;
+        top: 0;
+        left: 0;
+        right: 0;
+        bottom: 0;
+        border-radius: 0;
+        max-width: 100vw;
+        max-height: 100vh;
+        z-index: 9999;
+    }
+}
+
 /* Topbar search-panel toggle button (issue #131) */
 #btn-search-panel[aria-pressed="true"] {
     background: var(--accent-soft, oklch(72% 0.15 220 / 0.20));
