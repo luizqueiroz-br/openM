@@ -830,6 +830,386 @@ label {
 }
 
 /* ============================================================================
+   Sidebar Tabs (issue #130 — Transform Hub)
+   ============================================================================ */
+.sidebar-tabs {
+    display: flex;
+    border-bottom: 1px solid var(--border);
+    background: var(--bg-deep);
+    padding: 0;
+    margin: 0;
+    flex-shrink: 0;
+    position: sticky;
+    top: 0;
+    z-index: 5;
+}
+
+.sidebar-tab {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 0.15rem;
+    padding: 0.5rem 0.25rem;
+    background: transparent;
+    border: 0;
+    border-bottom: 2px solid transparent;
+    color: var(--text-faint);
+    font-size: var(--text-xs);
+    font-weight: 500;
+    cursor: pointer;
+    min-height: 56px;
+    transition: color var(--duration-fast) var(--ease-out),
+                border-color var(--duration-fast) var(--ease-out),
+                background-color var(--duration-fast) var(--ease-out);
+}
+
+.sidebar-tab:hover {
+    color: var(--text-dim);
+    background: var(--bg-card-hover);
+}
+
+.sidebar-tab.active {
+    color: var(--accent);
+    border-bottom-color: var(--accent);
+    background: var(--bg-panel);
+}
+
+.sidebar-tab:focus-visible {
+    outline: 2px solid var(--accent);
+    outline-offset: -2px;
+    z-index: 1;
+}
+
+.sidebar-tab i,
+.sidebar-tab [data-lucide] {
+    width: 18px;
+    height: 18px;
+    flex-shrink: 0;
+}
+
+.sidebar-tab span {
+    font-size: 10px;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    line-height: 1;
+}
+
+[role="tabpanel"][hidden] {
+    display: none !important;
+}
+
+/* ============================================================================
+   Transform Hub (issue #130)
+   ============================================================================ */
+.transform-hub {
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+    padding: 0.5rem 0;
+}
+
+.th-header h3 {
+    display: flex;
+    align-items: center;
+    gap: 0.4rem;
+    font-size: var(--text-sm);
+    font-weight: 600;
+    color: var(--text);
+    text-transform: none;
+    letter-spacing: 0;
+    margin: 0 0 0.5rem 0;
+    padding: 0 0.5rem;
+}
+
+.th-header h3 i,
+.th-header h3 [data-lucide] {
+    width: 16px;
+    height: 16px;
+    color: var(--accent);
+}
+
+.th-search-bar {
+    position: relative;
+    padding: 0 0.5rem;
+}
+
+.th-search-icon {
+    position: absolute;
+    left: 1.1rem;
+    top: 50%;
+    transform: translateY(-50%);
+    color: var(--text-faint);
+    width: 14px;
+    height: 14px;
+    pointer-events: none;
+}
+
+.th-search-input {
+    width: 100%;
+    padding: 0.4rem 0.5rem 0.4rem 2rem;
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    color: var(--text);
+    font-size: var(--text-xs);
+    min-height: 32px;
+}
+
+.th-search-input::placeholder {
+    color: var(--text-faint);
+}
+
+.th-body {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 0.5rem;
+    min-height: 300px;
+    padding: 0 0.5rem;
+}
+
+.th-tree {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    max-height: 480px;
+    overflow-y: auto;
+    border-right: 1px solid var(--border);
+    padding-right: 0.5rem;
+}
+
+.th-cat {
+    display: flex;
+    align-items: center;
+    gap: 0.3rem;
+    padding: 0.3rem 0.4rem;
+    cursor: pointer;
+    border-radius: var(--radius-sm);
+    user-select: none;
+    min-height: 28px;
+}
+
+.th-cat:hover {
+    background: var(--bg-card-hover);
+}
+
+.th-cat[aria-expanded="true"] .th-cat-chevron {
+    transform: rotate(90deg);
+}
+
+.th-cat-chevron {
+    width: 12px;
+    height: 12px;
+    color: var(--text-faint);
+    transition: transform var(--duration-fast) var(--ease-out);
+    flex-shrink: 0;
+}
+
+.th-cat-label {
+    flex: 1;
+    font-size: var(--text-xs);
+    font-weight: 600;
+    color: var(--text-dim);
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+}
+
+.th-cat-count {
+    font-size: 10px;
+    color: var(--text-faint);
+    background: var(--bg-card);
+    padding: 0 6px;
+    border-radius: var(--radius-full);
+    border: 1px solid var(--border);
+    font-variant-numeric: tabular-nums;
+}
+
+.th-cat-children {
+    display: none;
+    flex-direction: column;
+    gap: 2px;
+    padding-left: 12px;
+    margin-top: 2px;
+}
+
+.th-cat[aria-expanded="true"] + .th-cat-children {
+    display: flex;
+}
+
+.th-node {
+    display: flex;
+    align-items: center;
+    gap: 0.4rem;
+    padding: 0.35rem 0.5rem;
+    border-radius: var(--radius-sm);
+    cursor: pointer;
+    user-select: none;
+    min-height: 32px;
+    transition: background-color var(--duration-fast) var(--ease-out);
+    border: 1px solid transparent;
+}
+
+.th-node:hover {
+    background: var(--bg-card-hover);
+}
+
+.th-node.active {
+    background: var(--bg-card);
+    border-color: var(--accent);
+}
+
+.th-node:focus-visible {
+    outline: 2px solid var(--accent);
+    outline-offset: -2px;
+}
+
+.th-node-icon,
+.th-node [data-lucide] {
+    width: 14px;
+    height: 14px;
+    color: var(--accent);
+    flex-shrink: 0;
+}
+
+.th-node-label {
+    flex: 1;
+    font-size: var(--text-xs);
+    color: var(--text);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.th-badge {
+    font-size: 9px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    padding: 1px 4px;
+    border-radius: var(--radius-sm);
+    border: 1px solid currentColor;
+    line-height: 1;
+}
+
+.th-badge-free {
+    color: var(--success);
+    background: color-mix(in oklch, var(--success) 12%, transparent);
+}
+
+.th-badge-registered {
+    color: var(--accent);
+    background: color-mix(in oklch, var(--accent) 12%, transparent);
+}
+
+.th-badge-commercial {
+    color: var(--warn);
+    background: color-mix(in oklch, var(--warn) 12%, transparent);
+}
+
+.th-detail {
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+    min-height: 200px;
+    max-height: 480px;
+    overflow-y: auto;
+}
+
+.th-detail-empty {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 0.5rem;
+    text-align: center;
+    color: var(--text-faint);
+    padding: 1rem;
+    height: 100%;
+}
+
+.th-detail-empty i,
+.th-detail-empty [data-lucide] {
+    width: 28px;
+    height: 28px;
+    opacity: 0.5;
+}
+
+.th-detail-empty p {
+    font-size: var(--text-xs);
+    margin: 0;
+}
+
+.th-detail-content {
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+}
+
+.th-detail-header {
+    display: flex;
+    align-items: flex-start;
+    gap: 0.4rem;
+    padding-bottom: 0.4rem;
+    border-bottom: 1px solid var(--border);
+}
+
+.th-detail-name {
+    flex: 1;
+    font-size: var(--text-sm);
+    font-weight: 600;
+    color: var(--text);
+    margin: 0;
+}
+
+.th-detail-badge {
+    flex-shrink: 0;
+}
+
+.th-detail-desc {
+    font-size: var(--text-xs);
+    color: var(--text-dim);
+    line-height: 1.5;
+    margin: 0;
+}
+
+.th-detail-meta {
+    display: flex;
+    flex-direction: column;
+    gap: 0.25rem;
+    font-size: var(--text-xs);
+}
+
+.th-detail-meta-row {
+    display: flex;
+    gap: 0.4rem;
+    align-items: center;
+}
+
+.th-detail-meta-key {
+    color: var(--text-faint);
+    text-transform: uppercase;
+    font-size: 10px;
+    letter-spacing: 0.05em;
+    min-width: 70px;
+}
+
+.th-detail-meta-value {
+    color: var(--text);
+    font-family: var(--font-mono);
+}
+
+.th-detail-run-btn {
+    width: 100%;
+    margin-top: 0.5rem;
+    min-height: 36px;
+}
+
+.th-detail-run-btn:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+}
+
+/* ============================================================================
    Graph Search & Filter Panel (issue #131)
    ============================================================================ */
 .graph-search-panel {
@@ -1949,5 +2329,16 @@ wa-input, wa-select, wa-textarea {
 
     .admin-col-actions .btn.danger:hover {
         background: rgba(220, 53, 69, 0.35);
+    }
+
+    /* Transform Hub badges (issue #130) */
+    .th-badge-free {
+        background: rgba(34, 197, 94, 0.12);
+    }
+    .th-badge-registered {
+        background: rgba(56, 189, 248, 0.12);
+    }
+    .th-badge-commercial {
+        background: rgba(251, 191, 36, 0.12);
     }
 }

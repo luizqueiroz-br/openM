@@ -285,14 +285,32 @@ const App = {
         const tabs = ['entities', 'investigations', 'transforms', 'admin'];
         if (n < 1 || n > tabs.length) return;
         const tab = tabs[n - 1];
-        // Procura o link/botão de tab correspondente no DOM
-        const tabLink = document.querySelector(`[data-tab="${tab}"]`);
-        if (tabLink) {
-            tabLink.click();
-            this.announce(`Aba ${tab} ativada`, 'polite');
-        } else {
-            // Se não há tabs explícitas no DOM (estado atual), apenas faz announce
-            this.announce(`Tentando ativar aba ${tab}`, 'polite');
+        this.setActiveSidebarTab(tab);
+    },
+
+    /**
+     * Ativa a tab da sidebar (e esconde as outras).
+     * Issue #130: gerencia o estado das 4 tabs (entities/investigations/transforms/admin).
+     * @param {'entities'|'investigations'|'transforms'|'admin'} name
+     */
+    setActiveSidebarTab(name) {
+        // Esconde todas as sections, mostra a ativa
+        document.querySelectorAll('.sidebar-section[id^="section-"]').forEach((s) => {
+            s.hidden = s.id !== `section-${name}`;
+        });
+        // Atualiza aria-selected e tabindex dos tabs
+        document.querySelectorAll('.sidebar-tab').forEach((t) => {
+            const isActive = t.dataset.tab === name;
+            t.setAttribute('aria-selected', isActive ? 'true' : 'false');
+            t.setAttribute('tabindex', isActive ? '0' : '-1');
+            t.classList.toggle('active', isActive);
+        });
+        // Aplica RBAC gate (esconde sections restritas para o role atual)
+        if (window.OpenMPermissions && typeof window.OpenMPermissions.applyRoleGates === 'function') {
+            window.OpenMPermissions.applyRoleGates(this.currentUser);
+        }
+        if (typeof this.announce === 'function') {
+            this.announce(`Aba ${name} ativada`, 'polite');
         }
     },
 
@@ -844,6 +862,14 @@ const App = {
         document.getElementById('btn-save').addEventListener('click', () => this.saveInvestigation());
         document.getElementById('btn-export').addEventListener('click', () => this.exportGraph());
         document.getElementById('btn-import').addEventListener('click', () => this.importGraph());
+
+        // Sidebar tabs (issue #130)
+        document.querySelectorAll('.sidebar-tab').forEach((tab) => {
+            tab.addEventListener('click', () => {
+                this.setActiveSidebarTab(tab.dataset.tab);
+            });
+        });
+
         document.getElementById('btn-theme').addEventListener('click', () => this.toggleTheme());
 
         document.getElementById('ov-fit').addEventListener('click', () => Graph.fit());
@@ -887,6 +913,14 @@ const App = {
                         Graph.redo();
                         return;
                     }
+                    // Issue #130: atalho Cmd/Ctrl+Shift+R — re-run last transform
+                    if (e.key === 'R' || e.key === 'r') {
+                        e.preventDefault();
+                        if (window.TransformHub && typeof window.TransformHub.runLastTransform === 'function') {
+                            window.TransformHub.runLastTransform();
+                        }
+                        return;
+                    }
                 } else {
                     if (e.key === 'z' || e.key === 'Z') {
                         e.preventDefault();
@@ -909,6 +943,15 @@ const App = {
                         e.preventDefault();
                         const btn = document.getElementById('btn-save');
                         if (btn) btn.click();
+                        return;
+                    }
+                    // Issue #130: atalho Cmd/Ctrl+R — switch para tab transforms + run last selected
+                    if (e.key === 'r' || e.key === 'R') {
+                        e.preventDefault();
+                        this.setActiveSidebarTab('transforms');
+                        if (window.TransformHub && typeof window.TransformHub.runLastTransform === 'function') {
+                            setTimeout(() => window.TransformHub.runLastTransform(), 100);
+                        }
                         return;
                     }
                 }
@@ -964,6 +1007,10 @@ const App = {
         if (window.SearchPanel && typeof window.SearchPanel.init === 'function') {
             window.SearchPanel.init();
         }
+        // Issue #130: Transform Hub — popula a árvore de transforms
+        if (window.TransformHub && typeof window.TransformHub.init === 'function') {
+            window.TransformHub.init();
+        }
         this.bindTopbar();
         this.loadInvestigations();
         this.loadKeyServices();
@@ -975,6 +1022,10 @@ const App = {
     async loadUser() {
         const user = await OpenMAuth.bootstrap();
         if (user) {
+            // Issue #130: armazena o currentUser no App para uso por setActiveSidebarTab
+            // (que precisa aplicar RBAC gates via OpenMPermissions).
+            this.currentUser = user;
+
             const el = document.getElementById('user-email');
             if (el) el.textContent = user.email;
 
