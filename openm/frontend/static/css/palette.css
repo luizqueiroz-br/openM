@@ -1,0 +1,263 @@
+/* ============================================================
+   Command Palette — issue #133
+   Estilos para <dialog id="command-palette">.
+   Depende dos tokens em :root (--bg-panel, --bg-elev, --accent,
+   --text, --text-dim, --text-faint, --border, --text-2xs, etc.).
+   Convenção: todos os valores visuais usam tokens (oklch com
+   fallback hex em style.css). Nunca hardcode cores aqui.
+   ============================================================ */
+
+dialog.command-palette {
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 0;
+    width: min(640px, 92vw);
+    max-height: 60vh;
+    background: var(--bg-panel);
+    color: var(--text);
+    box-shadow: 0 20px 50px oklch(0% 0 0 / 0.5);
+    overflow: hidden;
+}
+
+dialog.command-palette::backdrop {
+    background: oklch(0% 0 0 / 0.5);
+    backdrop-filter: blur(2px);
+}
+
+/* Sinaliza foco visível no dialog (combobox pattern). */
+dialog.command-palette:focus-within {
+    border-color: var(--accent);
+    box-shadow:
+        0 20px 50px oklch(0% 0 0 / 0.5),
+        0 0 0 2px color-mix(in oklch, var(--accent) 35%, transparent);
+}
+
+/* ============ Form / Search ============ */
+
+.cp-form {
+    display: flex;
+    flex-direction: column;
+    height: 100%;
+    max-height: inherit;
+}
+
+.cp-search {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+    padding: 0.75rem 1rem;
+    border-bottom: 1px solid var(--border);
+    background: var(--bg-panel);
+}
+
+.cp-search > [data-lucide] {
+    width: 18px;
+    height: 18px;
+    color: var(--text-dim);
+    flex-shrink: 0;
+}
+
+.cp-input {
+    flex: 1;
+    min-width: 0;
+    border: 0;
+    outline: 0;
+    font-size: 1rem;
+    background: transparent;
+    color: var(--text);
+    font-family: inherit;
+    padding: 0.25rem 0;
+}
+
+.cp-input::placeholder {
+    color: var(--text-faint);
+}
+
+.cp-input:focus {
+    outline: 0;
+}
+
+/* Esc indicator on the right of the search input. */
+.cp-esc {
+    font-family: 'JetBrains Mono', 'Courier New', monospace;
+    font-size: var(--text-2xs, 0.7rem);
+    padding: 0 0.4rem;
+    background: var(--bg-elev);
+    border: 1px solid var(--border);
+    border-radius: 3px;
+    color: var(--text-dim);
+    flex-shrink: 0;
+}
+
+/* ============ Results list ============ */
+
+.cp-results {
+    list-style: none;
+    margin: 0;
+    padding: 0.25rem;
+    max-height: 50vh;
+    overflow-y: auto;
+    background: var(--bg-panel);
+}
+
+/* Webkit / Firefox scrollbar discreta. */
+.cp-results::-webkit-scrollbar {
+    width: 8px;
+}
+.cp-results::-webkit-scrollbar-thumb {
+    background: var(--border);
+    border-radius: 4px;
+}
+.cp-results::-webkit-scrollbar-thumb:hover {
+    background: var(--border-strong);
+}
+
+.cp-group {
+    padding: 0.5rem 1rem 0.25rem;
+    font-size: var(--text-2xs, 0.7rem);
+    color: var(--text-faint);
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    font-weight: 700;
+    list-style: none;
+    user-select: none;
+}
+
+.cp-item {
+    display: grid;
+    grid-template-columns: 18px 1fr auto;
+    align-items: center;
+    gap: 0.75rem;
+    padding: 0.5rem 0.75rem;
+    border-radius: 6px;
+    cursor: pointer;
+    color: var(--text);
+    list-style: none;
+    min-height: 36px;
+    transition: background 80ms ease;
+}
+
+.cp-item > [data-lucide] {
+    width: 18px;
+    height: 18px;
+    color: var(--text-dim);
+    flex-shrink: 0;
+}
+
+.cp-item .cp-label {
+    font-size: var(--text-sm, 0.9rem);
+    color: var(--text);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.cp-item .cp-hint {
+    display: none; /* escondida por padrão; ver prefers-contrast abaixo */
+}
+
+.cp-item .cp-shortcut {
+    font-family: 'JetBrains Mono', 'Courier New', monospace;
+    font-size: var(--text-2xs, 0.7rem);
+    color: var(--text-faint);
+    background: var(--bg-elev);
+    border: 1px solid var(--border);
+    border-radius: 3px;
+    padding: 0 0.4rem;
+    white-space: nowrap;
+    flex-shrink: 0;
+}
+
+.cp-item.active {
+    background: color-mix(in oklch, var(--accent) 12%, transparent);
+}
+
+.cp-item.active > [data-lucide] {
+    color: var(--accent);
+}
+
+.cp-item.active .cp-label {
+    color: var(--text);
+}
+
+.cp-item.active .cp-shortcut {
+    color: var(--text-dim);
+    border-color: var(--border-strong);
+}
+
+.cp-item:hover:not(.active) {
+    background: var(--bg-elev);
+}
+
+/* ============ Empty state ============ */
+
+.cp-empty {
+    padding: 2rem 1rem;
+    text-align: center;
+    color: var(--text-faint);
+    font-size: var(--text-sm, 0.9rem);
+    list-style: none;
+}
+
+/* ============ A11y utilities ============ */
+
+.sr-only {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    padding: 0;
+    margin: -1px;
+    overflow: hidden;
+    clip: rect(0, 0, 0, 0);
+    white-space: nowrap;
+    border: 0;
+}
+
+/* Mostrar hint em alto contraste (acessibilidade). */
+@media (prefers-contrast: more) {
+    .cp-item {
+        grid-template-columns: 18px 1fr auto auto;
+    }
+    .cp-item .cp-hint {
+        display: inline;
+        font-size: var(--text-2xs, 0.7rem);
+        color: var(--text-faint);
+    }
+    dialog.command-palette {
+        border-width: 2px;
+    }
+}
+
+/* ============ Mobile ============ */
+
+@media (max-width: 768px) {
+    dialog.command-palette {
+        width: 92vw;
+        max-height: 70vh;
+    }
+    .cp-results {
+        max-height: 60vh;
+    }
+    .cp-item {
+        padding: 0.75rem;
+        min-height: 44px; /* WCAG 2.5.5 touch target */
+    }
+    .cp-search {
+        padding: 0.75rem 0.875rem;
+    }
+    .cp-item .cp-shortcut {
+        display: none; /* economizar espaço no mobile */
+    }
+}
+
+/* ============ Reduced motion ============ */
+
+@media (prefers-reduced-motion: reduce) {
+    .cp-item,
+    dialog.command-palette,
+    dialog.command-palette::backdrop {
+        transition: none !important;
+        animation: none !important;
+        backdrop-filter: none;
+    }
+}

@@ -347,6 +347,19 @@ const App = {
     },
 
     /**
+     * @param {Element|null} el
+     * @returns {boolean} true se o elemento recebe texto digitado pelo
+     * usuário (input, textarea, select, contenteditable). Usado para
+     * gatear atalhos de tecla única (ex: '?', 'F') que não devem
+     * disparar quando o usuário está digitando em um campo.
+     */
+    _isEditable(el) {
+        if (!el) return false;
+        const tag = el.tagName;
+        return tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT' || el.isContentEditable;
+    },
+
+    /**
      * @returns {boolean} true se a viewport é tablet ou menor (max-width 1024px).
      * Usado para decidir se as sidebars devem virar drawers (overlays
      * deslizantes) e se atalhos de toggle (Cmd+B / Cmd+I) devem usar a
@@ -1110,6 +1123,28 @@ const App = {
             }
         });
 
+        // ────────────────────────────────────────────────────────────────
+        // Shortcuts overlay (issue #133)
+        // Fechamento via botão X (#so-close) ou clique no backdrop
+        // (o <dialog> em si, fora do .so-form). Esc já é tratado nativamente
+        // pelo <form method="dialog"> + <dialog>.showModal().
+        // ────────────────────────────────────────────────────────────────
+        const soClose = document.getElementById('so-close');
+        if (soClose) {
+            soClose.addEventListener('click', () => {
+                const overlay = document.getElementById('shortcuts-overlay');
+                if (overlay && overlay.open) overlay.close();
+            });
+        }
+        const shortcutsOverlay = document.getElementById('shortcuts-overlay');
+        if (shortcutsOverlay) {
+            shortcutsOverlay.addEventListener('click', (e) => {
+                if (e.target === shortcutsOverlay) {
+                    shortcutsOverlay.close();
+                }
+            });
+        }
+
         // Keyboard shortcuts
         document.addEventListener('keydown', (e) => {
             if (e.ctrlKey || e.metaKey) {
@@ -1180,6 +1215,14 @@ const App = {
                         this.toggleInspector();
                         return;
                     }
+                    // Issue #133: command palette toggle (Cmd/Ctrl+K)
+                    if (e.key === 'k' || e.key === 'K') {
+                        e.preventDefault();
+                        if (window.CommandPaletteUI) {
+                            window.CommandPaletteUI.toggle();
+                        }
+                        return;
+                    }
                 }
             } else if (e.key === 'f' || e.key === 'F') {
                 if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA') return;
@@ -1197,6 +1240,18 @@ const App = {
                     });
                 } else if (Graph.selected.isEdge()) {
                     this.deleteEdge(Graph.selected.id());
+                }
+            } else if (e.key === '?' && !this._isEditable(e.target)) {
+                // Issue #133: shortcuts overlay (?) — gate por isEditable
+                // para não disparar enquanto o usuário digita em um campo.
+                e.preventDefault();
+                const overlay = document.getElementById('shortcuts-overlay');
+                if (overlay && !overlay.open) {
+                    overlay.showModal();
+                    if (window.App && typeof window.App.announce === 'function') {
+                        window.App.announce('Atalhos de teclado abertos', 'polite');
+                    }
+                    setTimeout(() => document.getElementById('so-close')?.focus(), 0);
                 }
             }
         });
@@ -1226,6 +1281,12 @@ const App = {
         this.applyStoredTheme();
         this.watchSystemTheme();
         Inspector.init();
+        // Issue #133: command palette init — registra listeners do <dialog>
+        // e dos atalhos. Deve rodar antes de bindTopbar() para que o botão
+        // de fechar (#so-close) já esteja disponível.
+        if (window.CommandPaletteUI && typeof window.CommandPaletteUI.init === 'function') {
+            window.CommandPaletteUI.init();
+        }
         Palette.init();
         Graph.init('cy');
         // Issue #131: inicializa o painel de busca/filtro depois do Graph

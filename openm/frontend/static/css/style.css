@@ -1462,6 +1462,61 @@ label {
     background: var(--border-strong);
 }
 
+/* Shortcuts overlay (issue #133) */
+dialog.shortcuts-overlay {
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 0;
+    width: min(720px, 92vw);
+    max-height: 75vh;
+    background: var(--bg-panel);
+    color: var(--text);
+    box-shadow: 0 20px 50px oklch(0% 0 0 / 0.5);
+}
+dialog.shortcuts-overlay::backdrop {
+    background: oklch(0% 0 0 / 0.5);
+    backdrop-filter: blur(2px);
+}
+.so-form { display: flex; flex-direction: column; height: 100%; }
+.so-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 0.75rem 1rem;
+    border-bottom: 1px solid var(--border);
+}
+.so-title { margin: 0; font-size: 1rem; color: var(--text); }
+.so-body { padding: 1rem 1.25rem 1.25rem; overflow-y: auto; }
+.so-hint { margin: 0 0 1rem 0; color: var(--text-dim); font-size: var(--text-sm, 0.9rem); }
+.so-grid {
+    display: grid;
+    grid-template-columns: repeat(2, 1fr);
+    gap: 1.25rem 1.5rem;
+}
+.so-section-title {
+    margin: 0 0 0.5rem 0;
+    font-size: var(--text-2xs, 0.7rem);
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    color: var(--text-dim);
+    font-weight: 700;
+}
+.so-list { margin: 0; padding: 0; display: flex; flex-direction: column; gap: 0.4rem; }
+.so-item {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 1rem;
+    padding: 0.3rem 0;
+    font-size: var(--text-sm, 0.9rem);
+}
+.so-item dt { display: flex; gap: 0.2rem; align-items: center; }
+.so-item dd { margin: 0; color: var(--text-dim); }
+@media (max-width: 768px) {
+    .so-grid { grid-template-columns: 1fr; }
+    dialog.shortcuts-overlay { width: 95vw; max-height: 85vh; }
+}
+
 /* Mobile: panel vira full-width overlay */
 @media (max-width: 768px) {
     .graph-search-panel {
