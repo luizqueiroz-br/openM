@@ -201,9 +201,6 @@ class TestBatchErrorHandling:
         assert body["summary"]["timeout_count"] == 0
 
         # Verifica que cada result tem o status correto.
-        statuses = sorted(
-            (r.get("status"), r.get("value")) for r in body["results"]
-        )
         # O result com erro vem do worker (status="error" + error_type).
         # Os success vêm com cache=MISS (não há TTL no email_to_domain).
         error_results = [r for r in body["results"] if r.get("status") == "error"]
