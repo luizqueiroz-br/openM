@@ -38,6 +38,9 @@ class UrlscanTransform(Transform):
     # Scans sao async e o servico faz polling; mantemos TTL conservador
     # porque o resultado nao muda apos publicado.
     cache_ttl_seconds = 21600  # 6h
+    # Issue #81: chain. IPs contactados (CONNECTS_TO) podem ser
+    # geoip_lookup'ados para descobrir geolocalização e ASN.
+    downstream_transforms = ["geoip_lookup"]
 
     def _run(self, entity: Entity) -> TransformResult:
         checked_at = datetime.now(timezone.utc).isoformat()

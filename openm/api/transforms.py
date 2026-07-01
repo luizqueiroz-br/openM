@@ -4,13 +4,25 @@ from datetime import datetime, timedelta, timezone
 import logging
 import time
 import uuid
-from typing import Any
+from typing import Any, Dict, List, Optional
 
 from flask import Blueprint, current_app, g, jsonify, make_response, request
 
 from openm.config import Config
 from openm.core.auth import require_auth, require_role
-from openm.core.audit import ACTION_TRANSFORM_BATCH_RUN, ACTION_TRANSFORM_RUN, log_action
+from openm.core.audit import (
+    ACTION_TRANSFORM_BATCH_RUN,
+    ACTION_TRANSFORM_RUN,
+    log_action,
+)
+from openm.core.chain_executor import (
+    DEFAULT_CHAIN_DEPTH,
+    MAX_CHAIN_DEPTH,
+    MIN_CHAIN_DEPTH,
+    _build_chain_plan,
+    _execute_chain,
+    log_chain_audit,
+)
 from openm.core.entity import ENTITY_CLASSES
 from openm.core.rate_limiter import admin_exempt, user_service_key
 from openm.core.transform import TransformRegistry
@@ -103,6 +115,17 @@ def run_transform():
         - Limite por user+service, avaliado dinamicamente via
           ``g.service_name`` (resolvido abaixo a partir do
           ``transform_class.service_name`` declarado pela classe).
+
+    Chain (issue #81):
+        - Body aceita ``chain: bool | "dry_run"`` (default false)
+          e ``chain_max_depth: int`` (default 3, range 1-10).
+        - ``chain=true``: executa hop 1 e recursa em
+          ``downstream_transforms`` (max_chain_depth hops no total).
+          1 entry consolidada ``ACTION_TRANSFORM_CHAIN_RUN`` é
+          logada. Hops NÃO contam no rate limit (limitação v1).
+        - ``chain="dry_run"``: retorna ``plan`` estático sem
+          executar. Útil para preview no Transform Hub.
+        - Batch (``/api/run_transform_batch``) NÃO suporta chain.
     """
     data = request.get_json(silent=True) or {}
     transform_name = data.get("transform_name")
@@ -136,6 +159,53 @@ def run_transform():
     if not entity_type or not value:
         return jsonify({"error": "entity_type e value são obrigatórios"}), 400
 
+    # Issue #81: chain. Aceita bool ou string "dry_run". Default
+    # false (comportamento single entity, sem chain).
+    chain_raw = data.get("chain", False)
+    if isinstance(chain_raw, str):
+        chain_flag: Any = chain_raw.strip().lower() == "true"
+        chain_dry_run: bool = chain_raw.strip().lower() == "dry_run"
+    else:
+        chain_flag = bool(chain_raw)
+        chain_dry_run = False
+
+    # chain_max_depth: 1-10, default 3. Validado aqui (400 se
+    # inválido) para que dry_run nem tente executar.
+    chain_max_depth_raw = data.get("chain_max_depth", DEFAULT_CHAIN_DEPTH)
+    try:
+        chain_max_depth = int(chain_max_depth_raw)
+    except (TypeError, ValueError):
+        return jsonify({
+            "error": (
+                f"chain_max_depth inválido: {chain_max_depth_raw!r} "
+                f"(esperado inteiro entre {MIN_CHAIN_DEPTH} e {MAX_CHAIN_DEPTH})"
+            ),
+        }), 400
+    if chain_max_depth < MIN_CHAIN_DEPTH or chain_max_depth > MAX_CHAIN_DEPTH:
+        return jsonify({
+            "error": (
+                f"chain_max_depth fora do range: {chain_max_depth} "
+                f"(permitido: {MIN_CHAIN_DEPTH}-{MAX_CHAIN_DEPTH})"
+            ),
+        }), 400
+
+    # Dry-run: retorna plano estático sem executar. Útil para o
+    # frontend mostrar preview no Transform Hub.
+    if chain_dry_run:
+        plan = _build_chain_plan(
+            start_transform_name=transform_name,
+            start_input_type=entity_type,
+            max_chain_depth=chain_max_depth,
+        )
+        return jsonify({
+            "dry_run": True,
+            "transform_name": transform_name,
+            "entity_type": entity_type,
+            "chain_max_depth": chain_max_depth,
+            "total_hops": len(plan),
+            "plan": plan,
+        }), 200
+
     # force=true bypassa o cache (aceita tanto query param quanto body)
     force = (
         request.args.get("force", "").lower() == "true"
@@ -156,18 +226,21 @@ def run_transform():
         # Cache HIT: persiste input/relationships no Neo4j (sem re-executar)
         # para que ownership e audit reflitam a execucao corrente.
         gm = get_graph_manager()
+        chain_result: Optional[Dict[str, Any]] = None
+        chain_hop1_outputs: List[Any] = []
         if gm:
             from openm.core.entity import ENTITY_CLASSES as _EC
             input_dict = cached_payload.get("input", {})
             entity_class_hit = _EC.get(entity_type)
+            input_entity_hit = None
             if entity_class_hit is not None:
-                input_entity = entity_class_hit(
+                input_entity_hit = entity_class_hit(
                     value=input_dict.get("value", value),
                     properties=input_dict.get("properties", {}),
                     entity_id=input_dict.get("id") or entity_id,
                     created_by_user_id=g.user.id,
                 )
-                gm.merge_entity(input_entity)
+                gm.merge_entity(input_entity_hit)
 
             is_admin_hit = getattr(g, "role", None) == "admin"
             owner_id_hit = None if is_admin_hit else g.user.id
@@ -182,6 +255,8 @@ def run_transform():
                 )
                 ent_obj.created_by_user_id = owner_id_hit
                 gm.merge_entity(ent_obj)
+                # Acumular outputs para o chain (issue #81).
+                chain_hop1_outputs.append(ent_obj)
             for rel in cached_payload.get("relationships", []):
                 gm.create_relationship(
                     from_id=rel["from_id"],
@@ -214,7 +289,49 @@ def run_transform():
                 },
             )
 
-        response = make_response(jsonify(cached_payload), 200)
+            # Issue #81: chain execution (pós-hop-1). Mesmo em cache
+            # HIT, executamos os hops 2..N se chain=true.
+            if chain_flag and input_entity_hit is not None:
+                chain_result = _execute_chain(
+                    initial_transform_name=transform_name,
+                    initial_input_entity=input_entity_hit,
+                    initial_input_type=entity_type,
+                    initial_output_entities=chain_hop1_outputs,
+                    is_admin=is_admin_hit,
+                    owner_id=owner_id_hit,
+                    user_id=g.user.id,
+                    max_chain_depth=chain_max_depth,
+                    force=force,
+                )
+                # Audit consolidado do chain.
+                log_chain_audit(
+                    user_id=g.user.id,
+                    target_id=entity_id or value,
+                    transform_name=transform_name,
+                    entity_type=entity_type,
+                    chain_max_depth=chain_max_depth,
+                    result=chain_result,
+                    metadata_extra={
+                        "hop1_cache": "HIT",
+                        "hop1_duration_ms": 0,
+                    },
+                )
+
+        # Monta payload de resposta. Em chain=true, inclui os
+        # resultados dos hops 2..N.
+        response_payload = dict(cached_payload)
+        if chain_flag and chain_result is not None:
+            # Os outputs do hop 1 já estão em cached_payload.
+            # chain.hops traz telemetria hops 2..N.
+            response_payload["chain"] = {
+                "hops": chain_result.get("hops", []),
+                "truncated": bool(chain_result.get("truncated")),
+                "truncated_reason": chain_result.get("truncated_reason"),
+                "chain_max_depth": chain_max_depth,
+                "total_hops": len(chain_result.get("hops", [])),
+            }
+
+        response = make_response(jsonify(response_payload), 200)
         response.headers["X-Cache"] = cache_status
         return response
 
@@ -305,7 +422,46 @@ def run_transform():
             transform_name, entity_type, value, response_payload, ttl
         )
 
+    # Issue #81: chain execution (pós-hop-1). Se chain=true, recursa
+    # em downstream_transforms e loga audit consolidado.
+    chain_response: Optional[Dict[str, Any]] = None
+    if chain_flag:
+        chain_result = _execute_chain(
+            initial_transform_name=transform_name,
+            initial_input_entity=entity,
+            initial_input_type=entity_type,
+            initial_output_entities=list(result.entities),
+            is_admin=is_admin,
+            owner_id=owner_id,
+            user_id=g.user.id,
+            max_chain_depth=chain_max_depth,
+            force=force,
+        )
+        log_chain_audit(
+            user_id=g.user.id,
+            target_id=entity_id or entity.id,
+            transform_name=transform_name,
+            entity_type=entity_type,
+            chain_max_depth=chain_max_depth,
+            result=chain_result,
+            metadata_extra={
+                "hop1_cache": "MISS",
+                "hop1_duration_ms": (
+                    metrics.duration_ms if metrics is not None else 0
+                ),
+            },
+        )
+        chain_response = {
+            "hops": chain_result.get("hops", []),
+            "truncated": bool(chain_result.get("truncated")),
+            "truncated_reason": chain_result.get("truncated_reason"),
+            "chain_max_depth": chain_max_depth,
+            "total_hops": len(chain_result.get("hops", [])),
+        }
+
     cache_status = "BYPASS" if force and ttl > 0 else "MISS"
+    if chain_response is not None:
+        response_payload["chain"] = chain_response
     response = make_response(jsonify(response_payload), 200)
     response.headers["X-Cache"] = cache_status
     return response

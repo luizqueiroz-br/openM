@@ -20,6 +20,9 @@ class ResolveIPTransform(Transform):
     input_types = ["Domain"]
     description = "Resolve um domínio para seus endereços IPv4 via DNS."
     cache_ttl_seconds = 3600  # 1h — DNS A records podem mudar
+    # Issue #81: chain. IPs resultantes podem ser geoip_lookup'ados
+    # (Device via GeoLite2) e ter reverse_dns aplicado.
+    downstream_transforms = ["geoip_lookup", "reverse_dns"]
 
     def _run(self, entity: Entity) -> TransformResult:
         ips = resolve_domain(entity.value)

@@ -142,17 +142,38 @@ const OpenMAPI = {
     listTransforms: (entityType) =>
         api(`/transforms/${encodeURIComponent(entityType)}`),
 
-    runTransform: (entityId, transformName, entityType, value, properties = {}) =>
-        api('/run_transform', {
+    // Issue #81: chain. ``chain`` aceita bool ou "dry_run".
+    // ``chainMaxDepth`` (1-10, default 3) controla a profundidade
+    // máxima do pipeline.
+    runTransform: (
+        entityId,
+        transformName,
+        entityType,
+        value,
+        properties = {},
+        options = {},
+    ) => {
+        const body = {
+            entity_id: entityId,
+            transform_name: transformName,
+            entity_type: entityType,
+            value,
+            properties,
+        };
+        if (options.chain !== undefined) {
+            body.chain = options.chain;
+        }
+        if (options.chainMaxDepth !== undefined) {
+            body.chain_max_depth = options.chainMaxDepth;
+        }
+        if (options.force !== undefined) {
+            body.force = options.force;
+        }
+        return api('/run_transform', {
             method: 'POST',
-            body: JSON.stringify({
-                entity_id: entityId,
-                transform_name: transformName,
-                entity_type: entityType,
-                value,
-                properties,
-            }),
-        }),
+            body: JSON.stringify(body),
+        });
+    },
 
     // ============ Sightings (issue #129 — Timeline do Inspector) ============
     // GET /api/sightings?entity_id=X&category=all|transforms|edits|manual&limit=50

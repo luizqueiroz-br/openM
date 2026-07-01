@@ -231,6 +231,12 @@ ACTION_TRANSFORM_RUN = "transform.run"
 # uma por entity). Metadata inclui batch_size, success_count,
 # error_count, cache_hit_count, total_api_calls, duration_ms, status.
 ACTION_TRANSFORM_BATCH_RUN = "transform.batch_run"
+# Issue #81: pipeline/chain de transforms — uma entry consolidada
+# por chain (não uma por hop). Metadata inclui
+# chain_max_depth, total_hops, hops: [{depth, transform, input_id,
+# output_ids, duration_ms, status, cache, error_message?}],
+# truncated (bool), truncated_reason.
+ACTION_TRANSFORM_CHAIN_RUN = "transform.chain_run"
 
 # Investigations
 ACTION_INVESTIGATION_CREATE = "investigation.create"
@@ -265,6 +271,7 @@ __all__ = [
     "ACTION_ENTITY_DELETE",
     "ACTION_TRANSFORM_RUN",
     "ACTION_TRANSFORM_BATCH_RUN",
+    "ACTION_TRANSFORM_CHAIN_RUN",
     "ACTION_INVESTIGATION_CREATE",
     "ACTION_INVESTIGATION_UPDATE",
     "ACTION_INVESTIGATION_ARCHIVE",

@@ -28,6 +28,9 @@ class ReverseDnsTransform(Transform):
         "Útil para descobrir domínios hospedados em um IP específico."
     )
     cache_ttl_seconds = 3600  # 1h — PTR records mudam raramente
+    # Issue #81: chain. Hostname descoberto via PTR pode ser whois_lookup'ado
+    # para encontrar registrant/admin-c/tech-c.
+    downstream_transforms = ["whois_lookup"]
 
     def _run(self, entity: Entity) -> TransformResult:
         result = reverse_dns(entity.value)

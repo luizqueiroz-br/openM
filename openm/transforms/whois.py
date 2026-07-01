@@ -46,6 +46,10 @@ class WhoisTransform(Transform):
         "nameservers e contatos (registrant, admin, tech) de um domínio."
     )
     cache_ttl_seconds = 86400  # 24h — dados raramente mudam
+    # Issue #81: chain. Pessoas descobertas em WHOIS (registrant,
+    # admin-c, tech-c) podem virar input do person_domain_discovery
+    # para encontrar domínios adicionais.
+    downstream_transforms = ["person_domain_discovery"]
 
     def _run(self, entity: Entity) -> TransformResult:
         whois_data = WhoisService.investigate_domain(entity.value)
