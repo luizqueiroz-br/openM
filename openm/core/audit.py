@@ -227,6 +227,10 @@ ACTION_ENTITY_DELETE = "entity.delete"
 
 # Transforms
 ACTION_TRANSFORM_RUN = "transform.run"
+# Issue #87: batch transform execution — uma entry por batch (não
+# uma por entity). Metadata inclui batch_size, success_count,
+# error_count, cache_hit_count, total_api_calls, duration_ms, status.
+ACTION_TRANSFORM_BATCH_RUN = "transform.batch_run"
 
 # Investigations
 ACTION_INVESTIGATION_CREATE = "investigation.create"
@@ -260,6 +264,7 @@ __all__ = [
     "ACTION_ENTITY_UPDATE",
     "ACTION_ENTITY_DELETE",
     "ACTION_TRANSFORM_RUN",
+    "ACTION_TRANSFORM_BATCH_RUN",
     "ACTION_INVESTIGATION_CREATE",
     "ACTION_INVESTIGATION_UPDATE",
     "ACTION_INVESTIGATION_ARCHIVE",

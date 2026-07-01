@@ -55,6 +55,8 @@ _PERMISSION_MATRIX = [
     ("DELETE", "/api/entity/ok1",                 False, True,  True),
     # Transforms — só execução é restrita
     ("POST",   "/api/run_transform",              False, True,  True),
+    # Issue #87: bulk/batch transform execution.
+    ("POST",   "/api/run_transform_batch",        False, True,  True),
     # Graph — escrita de edges restrita
     ("POST",   "/api/edge",                       False, True,  True),
     ("DELETE", "/api/edge/abc",                   False, True,  True),
@@ -158,6 +160,13 @@ def test_rbac_matrix(method, path, viewer_ok, analyst_ok, admin_ok, request, app
                     "transform_name": "check_fraud_email",
                     "entity_type": "Email",
                     "value": "x@x.com",
+                }
+            elif path == "/api/run_transform_batch":
+                # Issue #87: bulk/batch — analyst+admin ok, viewer 403.
+                body = {
+                    "transform_name": "check_fraud_email",
+                    "entity_type": "Email",
+                    "entities": [{"value": "x@x.com"}],
                 }
             elif path == "/api/edge":
                 body = {"from_id": "a", "to_id": "b", "rel_type": "R"}

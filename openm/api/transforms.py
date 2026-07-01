@@ -1,11 +1,16 @@
+from concurrent.futures import ThreadPoolExecutor, as_completed
+from concurrent.futures import TimeoutError as FuturesTimeout
 from datetime import datetime, timedelta, timezone
+import logging
+import time
+import uuid
 from typing import Any
 
-from flask import Blueprint, g, jsonify, make_response, request
+from flask import Blueprint, current_app, g, jsonify, make_response, request
 
 from openm.config import Config
 from openm.core.auth import require_auth, require_role
-from openm.core.audit import ACTION_TRANSFORM_RUN, log_action
+from openm.core.audit import ACTION_TRANSFORM_BATCH_RUN, ACTION_TRANSFORM_RUN, log_action
 from openm.core.entity import ENTITY_CLASSES
 from openm.core.rate_limiter import admin_exempt, user_service_key
 from openm.core.transform import TransformRegistry
@@ -14,6 +19,8 @@ from openm.extensions import limiter
 from openm.models.audit_log import AuditLog
 from openm.services.health_check import get_all_services_health, get_service_health
 from openm.utils.neo4j_client import get_graph_manager
+
+logger = logging.getLogger(__name__)
 
 
 transforms_bp = Blueprint("transforms", __name__, url_prefix="/api")
@@ -302,6 +309,434 @@ def run_transform():
     response = make_response(jsonify(response_payload), 200)
     response.headers["X-Cache"] = cache_status
     return response
+
+
+# ---------------------------------------------------------------------------
+# Issue #87: Bulk/batch transform execution
+# ---------------------------------------------------------------------------
+
+
+def _process_one(
+    app_obj,
+    transform_class,
+    ctx_kwargs,
+    entity,
+    force,
+    ttl,
+    user_id,
+    is_admin,
+):
+    """
+    Worker function — roda em uma thread com seu próprio app_context.
+
+    Estratégia B (issue #87): check do cache em paralelo (mesma fase
+    da execução). Se HIT, faz replay das entidades/relacionamentos
+    no Neo4j sem executar o transform. Se MISS, executa o transform
+    e persiste resultado.
+
+    Retorna um dict com ``status`` ("success" | "error") e campos
+    de telemetria. Nunca levanta exceção para o caller — qualquer
+    falha é convertida em status="error" para que o batch
+    continue processando as demais entities (decisão issue #87).
+    """
+    with app_obj.app_context():
+        try:
+            value = entity.get("value", "")
+            properties = entity.get("properties", {})
+            entity_id = entity.get("entity_id")
+            entity_type = ctx_kwargs["entity_type"]
+            transform_name = ctx_kwargs["transform_name"]
+
+            # Cache check (estratégia B — paralelo).
+            cache_status = "MISS"
+            if ttl > 0 and not force:
+                cached = get_cached_result(transform_name, entity_type, value)
+                if cached is not None:
+                    # Replay no Neo4j (mesmo padrão de /api/run_transform
+                    # em cache HIT): reconstrói Entity objects a partir
+                    # dos dicts cacheados e faz merge.
+                    gm = get_graph_manager()
+                    if gm is not None:
+                        input_dict = cached.get("input", {})
+                        input_cls = ENTITY_CLASSES.get(entity_type)
+                        if input_cls is not None:
+                            input_entity = input_cls(
+                                value=input_dict.get("value", value),
+                                properties=input_dict.get("properties", {}),
+                                entity_id=input_dict.get("id") or entity_id,
+                                created_by_user_id=user_id,
+                            )
+                            gm.merge_entity(input_entity)
+                        owner_id = None if is_admin else user_id
+                        for ent_dict in cached.get("entities", []):
+                            ent_cls = ENTITY_CLASSES.get(ent_dict.get("type"))
+                            if ent_cls is None:
+                                continue
+                            ent_obj = ent_cls(
+                                value=ent_dict.get("value", ""),
+                                properties=ent_dict.get("properties", {}),
+                                entity_id=ent_dict.get("id"),
+                            )
+                            ent_obj.created_by_user_id = owner_id
+                            gm.merge_entity(ent_obj)
+                        for rel in cached.get("relationships", []):
+                            gm.create_relationship(
+                                from_id=rel["from_id"],
+                                to_id=rel["to_id"],
+                                rel_type=rel["type"],
+                                properties=rel.get("properties", {}),
+                                user_id=owner_id,
+                                is_admin=is_admin,
+                            )
+                    return {
+                        "value": value,
+                        "status": "success",
+                        "cache": "HIT",
+                        "entities": len(cached.get("entities", [])),
+                        "relationships": len(cached.get("relationships", [])),
+                        "api_calls": 0,
+                        "duration_ms": 0,
+                    }
+
+            # Cache MISS — executa o transform.
+            entity_class = ENTITY_CLASSES.get(entity_type)
+            if entity_class is None:
+                # Erro de config (entity_type não existe). Não aborta
+                # o batch — devolve error só para esta entity.
+                return {
+                    "value": value,
+                    "status": "error",
+                    "error": f"Tipo de entidade desconhecido: {entity_type}",
+                    "error_type": "UnknownEntityType",
+                }
+            entity_obj = entity_class(
+                value=value,
+                properties=properties,
+                entity_id=entity_id,
+                created_by_user_id=user_id,
+            )
+            transform = transform_class()
+            result = transform.run(entity_obj)
+            metrics = getattr(result, "_metrics", None)
+
+            # O template method ``Transform.run`` ENGOLLE exceções e
+            # devolve um ``TransformResult()`` vazio com
+            # ``metrics.status="error"`` (ou "timeout"). Precisamos
+            # checar isso para reportar o erro no batch em vez de
+            # marcar como success silencioso.
+            if metrics is not None and metrics.status in ("error", "timeout"):
+                return {
+                    "value": value,
+                    "status": metrics.status,
+                    "error": metrics.error_message or "transform failed",
+                    "error_type": "TransformError",
+                    "duration_ms": metrics.duration_ms,
+                }
+
+            gm = get_graph_manager()
+            if gm is not None:
+                gm.merge_entity(entity_obj)
+                owner_id = None if is_admin else user_id
+                for new_entity in result.entities:
+                    new_entity.created_by_user_id = owner_id
+                    gm.merge_entity(new_entity)
+                for rel in result.relationships:
+                    gm.create_relationship(
+                        from_id=rel["from_id"],
+                        to_id=rel["to_id"],
+                        rel_type=rel["type"],
+                        properties=rel.get("properties", {}),
+                        user_id=owner_id,
+                        is_admin=is_admin,
+                    )
+
+            if ttl > 0 and not force:
+                payload = {
+                    "input": entity_obj.to_dict(),
+                    "entities": [e.to_dict() for e in result.entities],
+                    "relationships": [
+                        {
+                            "from_id": r["from_id"],
+                            "to_id": r["to_id"],
+                            "type": r["type"],
+                            "properties": r.get("properties", {}),
+                        }
+                        for r in result.relationships
+                    ],
+                }
+                set_cached_result(
+                    transform_name, entity_type, value, payload, ttl
+                )
+
+            return {
+                "value": value,
+                "status": "success",
+                "cache": cache_status,
+                "entities": len(result.entities),
+                "relationships": len(result.relationships),
+                "api_calls": metrics.api_calls if metrics else 0,
+                "duration_ms": metrics.duration_ms if metrics else 0,
+            }
+        except Exception as exc:  # noqa: BLE001
+            logger.warning(
+                "batch entity failed value=%s err=%s",
+                entity.get("value"),
+                exc,
+            )
+            return {
+                "value": entity.get("value"),
+                "status": "error",
+                "error": str(exc),
+                "error_type": type(exc).__name__,
+            }
+
+
+@transforms_bp.route("/run_transform_batch", methods=["POST"])
+@require_auth
+@require_role("admin", "analyst")
+# Issue #87: rate limit por user+service. 1 count por batch (não por
+# entity) — o decorator conta 1 hit por request HTTP, independente
+# de quantas entities o batch contém. Lambda é avaliado em cada
+# request para permitir override por env var. Admins são isentos
+# via ``exempt_when``. Ordem dos decorators: @require_auth →
+# @require_role → @limiter.limit (innermost) — garante que
+# ``g.user`` está populado antes de ``key_func`` rodar.
+@limiter.limit(
+    lambda: Config.RATELIMIT_SERVICES.get(
+        getattr(g, "service_name", "__internal__"),
+        Config.RATELIMIT_SERVICES["__internal__"],
+    ),
+    key_func=user_service_key,
+    exempt_when=admin_exempt,
+)
+def run_transform_batch():
+    """
+    POST /api/run_transform_batch
+
+    Recebe ``{transform_name, entity_type, entities: [...]}`` e
+    executa o transform em N entities em paralelo
+    (``ThreadPoolExecutor`` com ``max_workers`` configurável).
+
+    Cada entity é processada independentemente: erro em uma
+    não aborta as demais (``status: error`` apenas para ela).
+    O endpoint retorna um ``summary`` agregado e um array
+    ``results`` com o status de cada entity. ATENÇÃO: ``results``
+    NÃO preserva a ordem de input (a ordem reflete a ordem de
+    conclusão de cada worker, não de envio). Se ordem for
+    importante, use o campo ``value`` de cada item para
+    indexar externamente.
+
+    Body:
+        {
+            "transform_name": "email_to_domain",
+            "entity_type":   "Email",
+            "entities": [
+                {"value": "a@x.com"},
+                {"value": "b@x.com", "properties": {...}}
+            ],
+            "force": false  # opcional, bypassa cache
+        }
+
+    Response (200):
+        {
+            "summary": {
+                "batch_size": N,
+                "success_count": ...,
+                "error_count": ...,
+                "timeout_count": ...,
+                "cache_hit_count": ...,
+                "duration_ms": ...,
+                "total_api_calls": ...,
+                "max_workers": ...,
+                "batch_timeout_seconds": ...
+            },
+            "results": [
+                {"value": "...", "status": "success", ...},
+                {"value": "...", "status": "error", ...}
+            ]
+        }
+
+    Errors:
+        400 — payload inválido (transform/entity_type ausente, entities
+              não-list, etc.)
+        413 — entities excede ``Config.BATCH_MAX_ENTITIES`` (default 100)
+        429 — rate limit excedido (issue #89)
+    """
+    data = request.get_json(silent=True) or {}
+    transform_name = data.get("transform_name")
+    entity_type = data.get("entity_type")
+    entities_payload = data.get("entities", [])
+    force = bool(data.get("force"))
+
+    if not transform_name:
+        return jsonify({"error": "transform_name é obrigatório"}), 400
+    if not entity_type:
+        return jsonify({"error": "entity_type é obrigatório"}), 400
+    if not isinstance(entities_payload, list):
+        return jsonify({"error": "entities deve ser uma lista"}), 400
+    if len(entities_payload) == 0:
+        return jsonify({"error": "entities não pode ser vazia"}), 400
+    if len(entities_payload) > Config.BATCH_MAX_ENTITIES:
+        return (
+            jsonify(
+                {
+                    "error": "batch_exceeds_max",
+                    "max_entities": Config.BATCH_MAX_ENTITIES,
+                    "received": len(entities_payload),
+                }
+            ),
+            413,
+        )
+
+    transform_class = TransformRegistry.get(transform_name)
+    if not transform_class:
+        return (
+            jsonify({"error": f"Transform desconhecido: {transform_name}"}),
+            400,
+        )
+    # Resolve entity_type agora para falhar cedo (antes de abrir
+    # o pool) — o worker também valida, mas falhar aqui dá erro
+    # 400 determinístico em vez de N errors genéricos.
+    if entity_type not in ENTITY_CLASSES:
+        return (
+            jsonify({"error": f"Tipo de entidade desconhecido: {entity_type}"}),
+            400,
+        )
+
+    # Setar g.service_name (defesa em profundidade; a before_request
+    # em core/rate_limiter.py já populou isso ANTES do limiter rodar
+    # para /api/run_transform_batch). A reatribuição aqui é
+    # importante para testes que chamam a view function diretamente
+    # sem passar pelo ciclo de request completo.
+    g.service_name = (
+        getattr(transform_class, "service_name", None) or "__internal__"
+    )
+
+    ttl = getattr(transform_class, "cache_ttl_seconds", 0) or 0
+    user_id = g.user.id
+    is_admin = getattr(g, "role", None) == "admin"
+    # app_obj precisa ser capturado do request handler — workers
+    # não têm acesso a ``current_app`` (não há request context na
+    # thread). _get_current_object() devolve o app real, sem proxy.
+    app_obj = current_app._get_current_object()
+    ctx_kwargs = {
+        "transform_name": transform_name,
+        "entity_type": entity_type,
+    }
+
+    # Execução paralela. ``max_workers`` é cap em
+    # ``len(entities_payload)`` para não abrir mais threads que
+    # entities (desperdício). 1 thread se batch tem 1 entity
+    # (overhead zero).
+    max_workers = min(Config.BATCH_MAX_WORKERS, len(entities_payload))
+    start_ts = time.perf_counter()
+    results: list[dict] = []
+    cache_hit_count = 0
+
+    with ThreadPoolExecutor(
+        max_workers=max_workers,
+        thread_name_prefix="openm-batch",
+    ) as executor:
+        futures = {
+            executor.submit(
+                _process_one,
+                app_obj,
+                transform_class,
+                ctx_kwargs,
+                entity,
+                force,
+                ttl,
+                user_id,
+                is_admin,
+            ): entity
+            for entity in entities_payload
+        }
+        try:
+            for fut in as_completed(
+                futures, timeout=Config.BATCH_TIMEOUT_SECONDS
+            ):
+                entity = futures[fut]
+                try:
+                    outcome = fut.result(timeout=0)
+                    results.append(outcome)
+                    if outcome.get("cache") == "HIT":
+                        cache_hit_count += 1
+                except Exception as exc:  # noqa: BLE001
+                    logger.warning("batch future exception: %s", exc)
+                    results.append(
+                        {
+                            "value": entity.get("value"),
+                            "status": "error",
+                            "error": str(exc),
+                            "error_type": type(exc).__name__,
+                        }
+                    )
+        except FuturesTimeout:
+            # Timeout global do batch atingido. Os futures que ainda
+            # não completaram viram status="timeout" no results. Não
+            # tentamos ``future.cancel()`` (issue #87: não confiar —
+            # a thread pode já estar executando o transform).
+            for fut, entity in futures.items():
+                if not fut.done():
+                    results.append(
+                        {
+                            "value": entity.get("value"),
+                            "status": "timeout",
+                        }
+                    )
+
+    duration_ms = round((time.perf_counter() - start_ts) * 1000, 2)
+
+    # Summary agregado.
+    success = [r for r in results if r.get("status") == "success"]
+    errors = [r for r in results if r.get("status") == "error"]
+    timeouts = [r for r in results if r.get("status") == "timeout"]
+    total_api_calls = sum(r.get("api_calls", 0) for r in success)
+
+    # 1 entry consolidada de audit (issue #87) — não uma por entity.
+    log_action(
+        action=ACTION_TRANSFORM_BATCH_RUN,
+        target_type="batch",
+        target_id=str(uuid.uuid4()),
+        user_id=user_id,
+        metadata={
+            "transform_name": transform_name,
+            "entity_type": entity_type,
+            "batch_size": len(entities_payload),
+            "success_count": len(success),
+            "error_count": len(errors),
+            "timeout_count": len(timeouts),
+            "cache_hit_count": cache_hit_count,
+            "total_api_calls": total_api_calls,
+            "duration_ms": duration_ms,
+            "status": (
+                "success"
+                if not errors and not timeouts
+                else "partial"
+                if success
+                else "error"
+            ),
+        },
+    )
+
+    return jsonify(
+        {
+            "summary": {
+                "batch_size": len(entities_payload),
+                "success_count": len(success),
+                "error_count": len(errors),
+                "timeout_count": len(timeouts),
+                "cache_hit_count": cache_hit_count,
+                "duration_ms": duration_ms,
+                "total_api_calls": total_api_calls,
+                "max_workers": max_workers,
+                "batch_timeout_seconds": Config.BATCH_TIMEOUT_SECONDS,
+            },
+            # ⚠️ paralelo, não preserva ordem de input. Use o
+            # campo ``value`` para mapear de volta ao input.
+            "results": results,
+        }
+    )
 
 
 @transforms_bp.route("/transforms/metrics", methods=["GET"])

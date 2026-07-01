@@ -181,6 +181,12 @@ PROTECTED_ROUTES = [
     ("DELETE", "/api/entity/abc", None),
     ("GET", "/api/transforms/Domain", None),
     ("POST", "/api/run_transform", {"transform_name": "x", "entity_type": "y", "value": "z"}),
+    # Issue #87: bulk/batch transform execution.
+    (
+        "POST",
+        "/api/run_transform_batch",
+        {"transform_name": "x", "entity_type": "Domain", "entities": [{"value": "a.com"}]},
+    ),
     ("GET", "/api/subgraph/abc", None),
     ("POST", "/api/edge", {"from_id": "a", "to_id": "b", "rel_type": "r"}),
     ("DELETE", "/api/edge/abc", None),
