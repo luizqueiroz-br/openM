@@ -3,11 +3,14 @@ from typing import Any
 
 from flask import Blueprint, g, jsonify, make_response, request
 
+from openm.config import Config
 from openm.core.auth import require_auth, require_role
 from openm.core.audit import ACTION_TRANSFORM_RUN, log_action
 from openm.core.entity import ENTITY_CLASSES
+from openm.core.rate_limiter import admin_exempt, user_service_key
 from openm.core.transform import TransformRegistry
 from openm.core.transform_cache import get_cached_result, set_cached_result
+from openm.extensions import limiter
 from openm.models.audit_log import AuditLog
 from openm.services.health_check import get_all_services_health, get_service_health
 from openm.utils.neo4j_client import get_graph_manager
@@ -58,6 +61,20 @@ def list_transforms(entity_type: str):
 @transforms_bp.route("/run_transform", methods=["POST"])
 @require_auth
 @require_role("admin", "analyst")
+# Issue #89: rate limit por user+service. A key_func resolve
+# ``f"u{user.id}:{service_name}"`` (fallback IP), e o lambda é avaliado
+# em cada request para permitir override por env var. Admins são
+# isentos via ``exempt_when``. Ordem dos decorators: @require_auth
+# (outermost) → @require_role → @limiter.limit (innermost) — garante
+# que ``g.user`` está populado antes de ``key_func`` rodar.
+@limiter.limit(
+    lambda: Config.RATELIMIT_SERVICES.get(
+        getattr(g, "service_name", "__internal__"),
+        Config.RATELIMIT_SERVICES["__internal__"],
+    ),
+    key_func=user_service_key,
+    exempt_when=admin_exempt,
+)
 def run_transform():
     """
     POST /api/run_transform
@@ -74,6 +91,11 @@ def run_transform():
         - Query param ``?force=true`` (ou campo ``force`` no body)
           bypassa o cache.
         - Resposta inclui header ``X-Cache: HIT|MISS|BYPASS``.
+
+    Rate limit (issue #89):
+        - Limite por user+service, avaliado dinamicamente via
+          ``g.service_name`` (resolvido abaixo a partir do
+          ``transform_class.service_name`` declarado pela classe).
     """
     data = request.get_json(silent=True) or {}
     transform_name = data.get("transform_name")
@@ -86,6 +108,16 @@ def run_transform():
     if not transform_class:
         msg = f"Transform desconhecido: {transform_name}"
         return jsonify({"error": msg}), 400
+
+    # Issue #89: resolve o service_name do transform para que
+    # ``user_service_key`` gere chaves distintas por service. A
+    # ``before_request`` registrada em ``register_rate_limit_handler``
+    # já popula ``g.service_name`` ANTES do limiter rodar (ela é
+    # registrada antes de ``limiter.init_app`` em app.py). Esta
+    # reatribuição no handler é redundante em produção (defense in
+    # depth) mas importante para testes que chamam a view function
+    # diretamente sem passar pelo ciclo de request completo.
+    g.service_name = getattr(transform_class, "service_name", None) or "__internal__"
 
     # A entidade de entrada pode vir completa no payload ou ser buscada
     # no Neo4j. Para simplificar e manter stateless, reconstruímos a
@@ -474,3 +506,40 @@ def services_health():
         return jsonify({"services": {single: get_service_health(single, force=force)}})
 
     return jsonify({"services": get_all_services_health(force=force)})
+
+
+@transforms_bp.route("/services/quota", methods=["GET"])
+@require_auth
+def services_quota():
+    """
+    GET /api/services/quota (issue #89)
+
+    Retorna a quota atual do user autenticado em cada service
+    declarado em ``Config.RATELIMIT_SERVICES``. Não é admin-only:
+    cada user consulta seu próprio budget (info retornada ao
+    usuário final para o frontend exibir avisos tipo "5/10 shodan
+    requests este minuto").
+
+    Resposta:
+        {
+            "services": [
+                {
+                    "name": "shodan",
+                    "limit": 10,
+                    "period": "hour",
+                    "used": 0,
+                    "remaining": 10,
+                    "reset_at": null
+                },
+                ...
+            ]
+        }
+    """
+    from openm.core.rate_limiter import get_user_quota
+
+    user = g.user
+    quotas = [
+        get_user_quota(user.id, service_name)
+        for service_name in Config.RATELIMIT_SERVICES.keys()
+    ]
+    return jsonify({"services": quotas})

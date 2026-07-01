@@ -1,5 +1,5 @@
 import os
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from dotenv import load_dotenv
 
 # Carrega variáveis de ambiente do arquivo .env, se existir.
@@ -25,6 +25,26 @@ class Config:
 
     # Rate limiting
     RATELIMIT_STORAGE_URI: str = os.environ.get("RATELIMIT_STORAGE_URI", "memory://")
+
+    # === Issue #89: Rate limiting per service (per-user) ===
+    # Limites default por service externo (configurável via env).
+    # Formato: "N/period" (period: second|minute|hour|day|month|year)
+    # Chave "__internal__" é usada para transforms sem service_name
+    # declarado (ex: whois, geoip, resolve_ip).
+    RATELIMIT_SERVICES: dict = field(
+        default_factory=lambda: {
+            "shodan":         os.environ.get("OPENM_RATE_LIMIT_SHODAN",         "10/hour"),
+            "virustotal":     os.environ.get("OPENM_RATE_LIMIT_VIRUSTOTAL",     "4/minute"),
+            "hunter":         os.environ.get("OPENM_RATE_LIMIT_HUNTER",         "10/day"),
+            "hibp":           os.environ.get("OPENM_RATE_LIMIT_HIBP",           "10/minute"),
+            "urlscan":        os.environ.get("OPENM_RATE_LIMIT_URLSCAN",        "100/day"),
+            "abuseipdb":      os.environ.get("OPENM_RATE_LIMIT_ABUSEIPDB",      "1000/day"),
+            "securitytrails": os.environ.get("OPENM_RATE_LIMIT_SECURITYTRAILS", "5/day"),
+            "emailrep":       os.environ.get("OPENM_RATE_LIMIT_EMAILREP",       "100/day"),
+            "threat_intel":   os.environ.get("OPENM_RATE_LIMIT_THREAT_INTEL",   "10/hour"),
+            "__internal__":   os.environ.get("OPENM_RATE_LIMIT_INTERNAL",       "100/hour"),
+        }
+    )
 
     # CORS liberado para uso local
     CORS_ORIGINS: str = os.environ.get("CORS_ORIGINS", "*")
@@ -71,3 +91,22 @@ class Config:
     # comando CLI ``flask audit purge --days N`` (que usa esse valor como
     # default). 0 desabilita a sugestão de retenção — o purge nunca é auto.
     AUDIT_LOG_RETENTION_DAYS: int = int(os.environ.get("AUDIT_LOG_RETENTION_DAYS", "90"))
+
+
+# Materializa o dict no nível da classe para que ``app.config.from_object``
+# (Flask) descubra o atributo via ``dir(Config)``. Dataclass fields com
+# ``default_factory`` são aplicados apenas em instâncias, não na classe
+# — sem esta atribuição, ``app.config["RATELIMIT_SERVICES"]`` ficaria
+# vazio após ``app.config.from_object(Config)``.
+Config.RATELIMIT_SERVICES = {
+    "shodan":         os.environ.get("OPENM_RATE_LIMIT_SHODAN",         "10/hour"),
+    "virustotal":     os.environ.get("OPENM_RATE_LIMIT_VIRUSTOTAL",     "4/minute"),
+    "hunter":         os.environ.get("OPENM_RATE_LIMIT_HUNTER",         "10/day"),
+    "hibp":           os.environ.get("OPENM_RATE_LIMIT_HIBP",           "10/minute"),
+    "urlscan":        os.environ.get("OPENM_RATE_LIMIT_URLSCAN",        "100/day"),
+    "abuseipdb":      os.environ.get("OPENM_RATE_LIMIT_ABUSEIPDB",      "1000/day"),
+    "securitytrails": os.environ.get("OPENM_RATE_LIMIT_SECURITYTRAILS", "5/day"),
+    "emailrep":       os.environ.get("OPENM_RATE_LIMIT_EMAILREP",       "100/day"),
+    "threat_intel":   os.environ.get("OPENM_RATE_LIMIT_THREAT_INTEL",   "10/hour"),
+    "__internal__":   os.environ.get("OPENM_RATE_LIMIT_INTERNAL",       "100/hour"),
+}

@@ -44,6 +44,14 @@ def create_app(config_class=Config) -> Flask:
     # Inicializa extensões
     db.init_app(app)
     Migrate(app, db)
+
+    # Issue #89: registra o ``before_request`` que resolve
+    # ``g.service_name`` ANTES do ``_check_request_limit`` do
+    # Flask-Limiter. A ordem importa: a before_request do Limiter
+    # é adicionada em ``limiter.init_app(app)`` abaixo, então
+    # nosso hook precisa estar registrado ANTES.
+    from openm.core.rate_limiter import register_rate_limit_handler
+    register_rate_limit_handler(app)
     limiter.init_app(app)
 
     # CORS liberado para uso local
