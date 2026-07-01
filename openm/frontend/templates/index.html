@@ -19,6 +19,8 @@
 
     <!-- Cytoscape.js + plugins (locais para ordem determinística) -->
     <script src="{{ url_for('static', filename='vendor/cytoscape.min.js') }}"></script>
+    <!-- Issue #125: undo/redo plugin (Bilkent) -->
+    <script src="{{ url_for('static', filename='vendor/cytoscape-undo-redo.js') }}"></script>
     <!-- Issue #123: fcose + navigator (cose-base ANTES de fcose por ser peer-dep) -->
     <script src="{{ url_for('static', filename='vendor/cose-base.js') }}"></script>
     <script src="{{ url_for('static', filename='vendor/cytoscape-fcose.js') }}"></script>

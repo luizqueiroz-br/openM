@@ -745,6 +745,20 @@ textarea {
 .btn.icon { padding: 0.4rem 0.55rem; }
 .btn.sm { padding: 0.25rem 0.5rem; font-size: 0.75rem; }
 
+/* Issue #125: estado disabled (usado em #btn-undo / #btn-redo quando stack
+   está vazio). Usa apenas tokens existentes — sem hardcode de cor. */
+.btn.icon:disabled,
+.btn[disabled] {
+    opacity: 0.4;
+    cursor: not-allowed;
+    background: var(--bg-card);
+}
+.btn.icon:disabled:hover,
+.btn[disabled]:hover {
+    background: var(--bg-card);
+    border-color: var(--border);
+}
+
 /* ==============================================================
    Formulários
    ============================================================== */

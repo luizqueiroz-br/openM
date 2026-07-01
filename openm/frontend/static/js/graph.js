@@ -12,6 +12,7 @@
 
 // Registra plugins do Cytoscape.
 if (typeof cytoscape !== 'undefined') {
+    if (typeof cytoscapeUndoRedo !== 'undefined') cytoscape.use(cytoscapeUndoRedo);
     if (typeof cytoscapeCoseBilkent !== 'undefined') cytoscape.use(cytoscapeCoseBilkent);
     if (typeof cytoscapeFcose !== 'undefined') cytoscape.use(cytoscapeFcose);
     if (typeof cytoscapeCxtmenu !== 'undefined') cytoscape.use(cytoscapeCxtmenu);
@@ -32,8 +33,7 @@ function _supportsWebGL2() {
 
 let cy = null;
 let eh = null;
-const undoStack = [];
-const redoStack = [];
+let ur = null;  // cytoscape-undo-redo instance (Bilkent, issue #125)
 
 const Graph = {
     selected: null,
@@ -64,6 +64,7 @@ const Graph = {
         });
 
         this._initEdgehandles();
+        this._initUndoRedo();      // Issue #125: precisa de `cy` + `cytoscape.use(cytoscapeUndoRedo)`
         this._initContextMenu();
         this._initEvents();
         this._initNavigator();   // Issue #123: mini-mapa
@@ -277,10 +278,14 @@ const Graph = {
                                 properties,
                             });
                             App.toast('success', `Vínculo ${rel_type} criado.`);
-                            this.pushUndo({
-                                type: 'add_edge',
-                                data: { id: addedEdge.id(), source: sourceNode.id(), target: targetNode.id(), label: rel_type },
-                            });
+                            // Issue #125: workaround para edgehandles + undo-redo (Bilkent issue #22).
+                            // Sem isso, undo "pula" para última action e deleta node vizinho em vez da edge.
+                            if (typeof ur !== 'undefined' && ur && typeof ur.do === 'function') {
+                                ur.do('add', {
+                                    eles: [addedEdge],
+                                    etag: window.AutoSave && window.AutoSave.currentInvestigationVersion,
+                                });
+                            }
                         } catch (err) {
                             addedEdge.remove();
                             App.toast('error', `Erro ao criar vínculo: ${err.message}`);
@@ -289,6 +294,25 @@ const Graph = {
                 });
             },
         });
+    },
+
+    /**
+     * Inicializa o plugin cytoscape-undo-redo (Bilkent, issue #125).
+     * - Cap do stack: 50 ações (paridade com implementação custom anterior).
+     * - Drag automático: default do Bilkent via `setDragUndo` (captura diff
+     *   de position no `free` event, registra ação "move").
+     * - Modo "automático" do Bilkent é enganoso: ele só registra uma action
+     *   se houver listener manual de `ur.do('add'|'remove', ...)`. Os
+     *   call-sites wirados estão em addNode/addEdge/removeNode/removeEdge
+     *   e no callback `complete` do edgehandles (workaround issue #22).
+     */
+    _initUndoRedo() {
+        if (!cy || typeof cy.undoRedo !== 'function') {
+            console.warn('openm: cytoscape-undo-redo não carregou; undo/redo desabilitado.');
+            return;
+        }
+        ur = cy.undoRedo({ stackSizeLimit: 50 });
+        this._syncUndoButtons();
     },
 
     _initContextMenu() {
@@ -531,11 +555,22 @@ const Graph = {
             existing.data(cyData);
             return existing;
         }
-        const node = cy.add({ group: 'nodes', data: cyData });
+        // Issue #125: registra add no stack do Bilkent (com etag) ou cai no
+        // fallback cy.add puro se o plugin não estiver carregado.
+        let node;
+        if (ur && typeof ur.do === 'function') {
+            node = ur.do('add', {
+                group: 'nodes',
+                data: cyData,
+                etag: window.AutoSave && window.AutoSave.currentInvestigationVersion,
+            });
+        } else {
+            node = cy.add({ group: 'nodes', data: cyData });
+        }
         if (position) {
             node.position(position);
         }
-        this.relayout();
+        this._syncUndoButtons();
         return node;
     },
 
@@ -552,7 +587,19 @@ const Graph = {
                 }
             }
         }
-        const edge = cy.add({ group: 'edges', data });
+        // Issue #125: registra add no stack do Bilkent (com etag) ou cai no
+        // fallback cy.add puro se o plugin não estiver carregado.
+        let edge;
+        if (ur && typeof ur.do === 'function') {
+            edge = ur.do('add', {
+                group: 'edges',
+                data,
+                etag: window.AutoSave && window.AutoSave.currentInvestigationVersion,
+            });
+        } else {
+            edge = cy.add({ group: 'edges', data });
+        }
+        this._syncUndoButtons();
         return edge;
     },
 
@@ -585,6 +632,9 @@ const Graph = {
 
     relayout() {
         if (!cy) return;
+        // Issue #125: relayout não é uma ação do usuário — não deve ser undoable.
+        // Limpar o stack aqui também evita restaurar um layout "quebrado" via undo.
+        if (typeof ur !== 'undefined' && ur) ur.reset();
         // Issue #123: switch entre cose-bilkent (default) e fcose via
         // Graph.setLayoutEngine('fcose' | 'cose-bilkent'). Fallback para grid.
         const useFcose = this._layoutEngine === 'fcose';
@@ -625,16 +675,21 @@ const Graph = {
     clear() {
         if (!cy) return;
         if (cy.elements().length === 0) return;
+        const self = this;
         Modal.confirm({
             title: 'Limpar grafo?',
             message: 'Todas as entidades e vínculos serão removidos da tela (não serão apagados do Neo4j).',
             danger: true,
             onConfirm: () => {
                 // Suprime markDirty durante a operação em massa
-                this._suppressDirty = true;
+                self._suppressDirty = true;
+                // Issue #125: limpa o stack do Bilkent antes do remove em massa.
+                // Sem isso, o stack ficaria poluído com 1 action "remove" gigante.
+                if (typeof ur !== 'undefined' && ur) ur.reset();
                 cy.elements().remove();
-                this._suppressDirty = false;
+                self._suppressDirty = false;
                 if (window.AutoSave) window.AutoSave.stop();
+                self._syncUndoButtons();
                 App.toast('info', 'Grafo limpo.');
             },
         });
@@ -650,60 +705,68 @@ const Graph = {
     removeNode(id) {
         if (!cy) return;
         const node = cy.getElementById(id);
-        if (node.length) {
-            this.pushUndo({ type: 'remove_node', data: { node: node.data(), edges: node.connectedEdges().map(e => e.data()) } });
+        if (!node.length) return;
+        // Issue #125: registra remove no stack do Bilkent (com etag) ou cai
+        // no fallback node.remove() puro se o plugin não estiver carregado.
+        if (ur && typeof ur.do === 'function') {
+            ur.do('remove', {
+                eles: node,
+                etag: window.AutoSave && window.AutoSave.currentInvestigationVersion,
+            });
+        } else {
             node.remove();
         }
+        this._syncUndoButtons();
     },
 
     removeEdge(id) {
         if (!cy) return;
         const edge = cy.getElementById(id);
-        if (edge.length) {
-            this.pushUndo({ type: 'remove_edge', data: edge.data() });
+        if (!edge.length) return;
+        // Issue #125: registra remove no stack do Bilkent (com etag) ou cai
+        // no fallback edge.remove() puro se o plugin não estiver carregado.
+        if (ur && typeof ur.do === 'function') {
+            ur.do('remove', {
+                eles: edge,
+                etag: window.AutoSave && window.AutoSave.currentInvestigationVersion,
+            });
+        } else {
             edge.remove();
         }
+        this._syncUndoButtons();
     },
 
-    // Undo/Redo
-    pushUndo(action) {
-        undoStack.push(action);
-        if (undoStack.length > 50) undoStack.shift();
-        redoStack.length = 0;
-    },
-
+    // Issue #125: undo/redo via cytoscape-undo-redo (Bilkent) — substitui custom.
+    // API pública preservada: Graph.undo() e Graph.redo() mantêm a mesma assinatura,
+    // então os 7 call-sites externos (5 em app.js, 2 em commands.js) seguem
+    // funcionando sem mudança. Stack cap = 50 (paridade com custom anterior).
     undo() {
-        const action = undoStack.pop();
-        if (!action) return;
-        if (action.type === 'add_edge') {
-            const edge = cy.getElementById(action.data.id);
-            if (edge.length) edge.remove();
-            redoStack.push(action);
-        } else if (action.type === 'remove_node') {
-            this.addNode(action.data.node);
-            action.data.edges.forEach(e => this.addEdge(e.id, e.source, e.target, e.label, e));
-            redoStack.push(action);
-        } else if (action.type === 'remove_edge') {
-            this.addEdge(action.data.id, action.data.source, action.data.target, action.data.label, action.data);
-            redoStack.push(action);
+        if (!ur || ur.isUndoStackEmpty()) {
+            App.toast('info', 'Nada para desfazer.');
+            return;
         }
+        ur.undo();
+        this._syncUndoButtons();
         App.toast('info', 'Ação desfeita.');
     },
 
     redo() {
-        const action = redoStack.pop();
-        if (!action) return;
-        if (action.type === 'add_edge') {
-            this.addEdge(action.data.id, action.data.source, action.data.target, action.data.label);
-            undoStack.push(action);
-        } else if (action.type === 'remove_node') {
-            this.removeNode(action.data.node.id);
-            undoStack.push(action);
-        } else if (action.type === 'remove_edge') {
-            this.removeEdge(action.data.id);
-            undoStack.push(action);
+        if (!ur || ur.isRedoStackEmpty()) {
+            App.toast('info', 'Nada para refazer.');
+            return;
         }
+        ur.redo();
+        this._syncUndoButtons();
         App.toast('info', 'Ação refeita.');
+    },
+
+    // Habilita/desabilita botões #btn-undo / #btn-redo conforme stack.
+    // Chamado após cada undo/redo/clear/import/loadSnapshot/relayout.
+    _syncUndoButtons() {
+        const undoBtn = document.getElementById('btn-undo');
+        const redoBtn = document.getElementById('btn-redo');
+        if (undoBtn) undoBtn.disabled = !ur || ur.isUndoStackEmpty();
+        if (redoBtn) redoBtn.disabled = !ur || ur.isRedoStackEmpty();
     },
 
     exportJson() {
@@ -716,12 +779,15 @@ const Graph = {
     importJson(data) {
         if (!cy || !data) return;
         this._suppressDirty = true;
+        // Issue #125: limpa stack antes do import em massa.
+        if (typeof ur !== 'undefined' && ur) ur.reset();
         cy.elements().remove();
         const nodes = (data.nodes || []).map(n => ({ group: 'nodes', data: n }));
         const edges = (data.edges || []).map(e => ({ group: 'edges', data: e }));
         cy.add([...nodes, ...edges]);
         this._suppressDirty = false;
         this.relayout();
+        this._syncUndoButtons();
         App.toast('success', `Importado: ${nodes.length} nós, ${edges.length} arestas.`);
     },
 
@@ -736,6 +802,8 @@ const Graph = {
         if (!cy) return;
         this._suppressDirty = true;
         cy.elements().remove();
+        // Issue #125: limpa stack antes do snapshot em massa.
+        if (typeof ur !== 'undefined' && ur) ur.reset();
 
         if (!snapshot) {
             this._suppressDirty = false;
