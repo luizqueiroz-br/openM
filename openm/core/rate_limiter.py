@@ -223,7 +223,14 @@ def register_rate_limit_handler(app: Flask) -> None:
         # Evita o work para requests que não precisam de service_name
         # (ex: /api/auth/login). Endpoint path match é mais barato que
         # parsear JSON.
-        if not request.path.endswith("/run_transform"):
+        # Issue #87: também popula ``g.service_name`` para o endpoint
+        # batch (``/api/run_transform_batch``) — caso contrário o
+        # lambda do ``@limiter.limit`` roda antes do handler e cai
+        # no default "__internal__", aplicando o limite errado.
+        if not (
+            request.path.endswith("/run_transform")
+            or request.path.endswith("/run_transform_batch")
+        ):
             return None
         data = request.get_json(silent=True) or {}
         transform_name = data.get("transform_name")

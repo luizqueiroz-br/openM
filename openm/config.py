@@ -6,6 +6,33 @@ from dotenv import load_dotenv
 load_dotenv()
 
 
+def _int_env(name: str, default: int, *, cap: int | None = None) -> int:
+    """
+    Lê uma env var como int com fallback seguro.
+
+    - Se a env var não estiver setada ou vier vazia → ``default``.
+    - Se vier inválida (não-conversível) → ``default`` (best-effort;
+      não derruba a app por config ruim).
+    - Se ``cap`` for fornecido e o valor exceder → clampa em ``cap``
+      (defesa contra valores absurdos via env).
+
+    Usado por ``Config`` para ``BATCH_*`` (issue #87) e qualquer
+    outro int configurável que se queira blindar.
+    """
+    raw = os.environ.get(name)
+    if not raw:
+        return default
+    try:
+        value = int(raw.strip())
+    except (ValueError, TypeError):
+        return default
+    if cap is not None and value > cap:
+        return cap
+    if value < 0:
+        return default
+    return value
+
+
 @dataclass
 class Config:
     """Configuração base da aplicação OpenM."""
@@ -25,6 +52,20 @@ class Config:
 
     # Rate limiting
     RATELIMIT_STORAGE_URI: str = os.environ.get("RATELIMIT_STORAGE_URI", "memory://")
+
+    # === Issue #87: Bulk/batch transform execution ===
+    # Tamanho do ThreadPoolExecutor usado em /api/run_transform_batch.
+    # Cap 50 para evitar storm de threads (cada worker abre app context
+    # e potencialmente chama Neo4j / API externa).
+    BATCH_MAX_WORKERS: int = _int_env("OPENM_BATCH_MAX_WORKERS", 5, cap=50)
+    # Timeout global do batch (as_completed timeout). Se exceder, os
+    # futures pendentes viram status="timeout" no results. Cap 600s
+    # (10 min) — bem acima de qualquer transform individual.
+    BATCH_TIMEOUT_SECONDS: int = _int_env("OPENM_BATCH_TIMEOUT", 60, cap=600)
+    # Hard cap de entities por batch. 413 (Payload Too Large) se
+    # exceder. Cap 1000 — limite razoável para uso legítimo e que
+    # não sobrecarrega Neo4j (cada entity vira N calls de merge).
+    BATCH_MAX_ENTITIES: int = _int_env("OPENM_BATCH_MAX_ENTITIES", 100, cap=1000)
 
     # === Issue #89: Rate limiting per service (per-user) ===
     # Limites default por service externo (configurável via env).

@@ -23,11 +23,31 @@ pode cachear a resposta inteira e retornar direto no HIT.
 """
 
 import logging
+import sqlite3  # noqa: F401 — referenced for type/docs; connection lives in services/sqlite_cache
+import threading  # noqa: F401 — referenced for type/docs; lock lives in services/sqlite_cache
 from typing import Any, Dict, Optional
 
 from openm.services.sqlite_cache import SqliteCache
 
 logger = logging.getLogger(__name__)
+
+
+# Thread-safety (issue #87 — batch transform execution):
+# A classe ``SqliteCache`` mantém UMA conexão persistente com
+# ``check_same_thread=False`` + ``PRAGMA journal_mode=WAL`` e
+# serializa get/set/delete via ``threading.Lock``. Isso permite
+# que múltiplos workers (até ``OPENM_BATCH_MAX_WORKERS``) do endpoint
+# ``/api/run_transform_batch`` usem o mesmo singleton do cache
+# simultaneamente sem ``SQLITE_MISUSE``. O singleton
+# ``_default_cache`` continua sendo compartilhado — todas as calls
+# do cache transform caem nele e são protegidas internamente.
+#
+# API pública deste módulo (não quebrar):
+#   - get_cached_result(transform_name, entity_type, value) -> dict|None
+#   - set_cached_result(transform_name, entity_type, value, payload, ttl)
+#   - clear_cache_for(transform_name, entity_type, value)
+#   - make_cache_key(transform_name, entity_type, value) -> str
+#   - make_response_payload(entity, result_entities, result_relationships)
 
 
 # Singleton para evitar abrir múltiplas conexões SQLite na mesma instância.
