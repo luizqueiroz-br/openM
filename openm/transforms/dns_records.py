@@ -30,6 +30,9 @@ class DnsRecordsTransform(Transform):
         "hostname descoberto."
     )
     cache_ttl_seconds = 3600  # 1h — DNS records mudam com alguma frequencia
+    # Issue #81: chain. Hostnames PTR/NS descobertos podem ter seus
+    # IPs resolvidos via resolve_ip.
+    downstream_transforms = ["resolve_ip"]
 
     def _run(self, entity: Entity) -> TransformResult:
         checked_at = datetime.now(timezone.utc).isoformat()

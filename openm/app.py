@@ -54,6 +54,26 @@ def create_app(config_class=Config) -> Flask:
     register_rate_limit_handler(app)
     limiter.init_app(app)
 
+    # Issue #81: cycle detection boot-time (camada 1 de 3). Após
+    # todos os transforms terem sido registrados (via
+    # ``openm.transforms`` import no topo), varre a DAG de
+    # ``downstream_transforms`` e loga warning se encontrar
+    # ciclo. Não levanta exceção — defesa em profundidade
+    # (runtime ``Set visited`` e ``max_chain_depth`` são as
+    # outras camadas).
+    from openm.core.transform import TransformRegistry
+
+    try:
+        cycles = TransformRegistry.detect_cycles()
+        if cycles:
+            for cycle in cycles:
+                app.logger.warning(
+                    "[issue#81] cycle detected em downstream_transforms: %s",
+                    " -> ".join(cycle),
+                )
+    except Exception as exc:  # pragma: no cover - defensivo
+        app.logger.warning("Falha ao detectar cycles de transform: %s", exc)
+
     # CORS liberado para uso local
     CORS(app, resources={r"/api/*": {"origins": "*"}})
 

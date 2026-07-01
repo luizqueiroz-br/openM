@@ -283,6 +283,37 @@
             runHint = `<small>Será executado em <code>${escapeHtml(label)}</code>.</small>`;
         }
 
+        // Issue #81: renderizar chips de "próximos passos" para
+        // chain. Cada chip é um botão que dispara
+        // App.runTransform(node, downstream, {chain: true}).
+        const downstream = t.downstream_transforms || [];
+        let chainChips = '';
+        if (downstream.length > 0) {
+            const chipsHtml = downstream
+                .map((dn) => {
+                    const displayLabel = state.transforms.find(
+                        (x) => x.name === dn,
+                    );
+                    return (
+                        `<button type="button" class="chip th-chain-chip" ` +
+                        `data-chain="${escapeHtml(dn)}" ` +
+                        `title="Encadear ${escapeHtml(dn)} após este transform">` +
+                        `<i data-lucide="arrow-right" aria-hidden="true"></i> ` +
+                        `${escapeHtml(
+                            (displayLabel && displayLabel.display_name) || dn,
+                        )}` +
+                        `</button>`
+                    );
+                })
+                .join('');
+            chainChips = `
+                <div class="th-detail-section">
+                    <div class="th-detail-section-title">Próximos passos (chain)</div>
+                    <div class="th-chain-chips">${chipsHtml}</div>
+                </div>
+            `;
+        }
+
         detail.innerHTML = `
             <div class="th-detail-content">
                 <div class="th-detail-header">
@@ -309,6 +340,7 @@
                     Rodar em seleção
                 </button>
                 <div class="th-detail-hint">${runHint}</div>
+                ${chainChips}
             </div>
         `;
         if (window.lucide && window.lucide.createIcons) window.lucide.createIcons();
@@ -316,12 +348,20 @@
         if (runBtn && !runDisabled) {
             runBtn.addEventListener('click', () => runSelectedTransform(t));
         }
+        // Issue #81: bind chain chips. Cada chip dispara
+        // App.runTransform(node, downstreamName, {chain: true}).
+        document.querySelectorAll('.th-chain-chip').forEach((chip) => {
+            chip.addEventListener('click', () => {
+                const dn = chip.getAttribute('data-chain');
+                if (dn) runSelectedTransform(null, dn, { chain: true });
+            });
+        });
         if (window.App && window.App.announce) {
             window.App.announce(`Transform ${t.display_name || t.name} selecionado`, 'polite');
         }
     }
 
-    function runSelectedTransform(t) {
+    function runSelectedTransform(t, overrideName, options = {}) {
         if (!window.Graph || !window.Graph.selected) {
             if (window.App && window.App.announce) {
                 window.App.announce('Selecione um node no grafo antes de rodar o transform', 'assertive');
@@ -336,8 +376,13 @@
             return;
         }
         if (window.App && typeof window.App.runTransform === 'function') {
-            // App.runTransform(node, transformName) — node = data() do cytoscape.
-            window.App.runTransform(node.data(), t.name);
+            // App.runTransform(node, transformName, options) — node =
+            // data() do cytoscape. ``overrideName`` permite que um
+            // chip de chain pule o ``t.name`` e use o nome do
+            // downstream.
+            const name = overrideName || (t && t.name);
+            if (!name) return;
+            window.App.runTransform(node.data(), name, options);
         }
     }
 

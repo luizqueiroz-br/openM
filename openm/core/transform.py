@@ -74,6 +74,15 @@ class Transform(ABC):
     # O endpoint /api/run_transform consulta o cache antes de executar
     # e salva o resultado depois — ver openm.core.transform_cache.
     cache_ttl_seconds: int = 0
+    # Issue #81: encadeamento automático de transforms (pipeline/chain).
+    # Lista de ``name`` de transforms que podem ser executados sobre as
+    # entidades resultantes deste. Consumida por:
+    #   - core.chain_executor (recursão BFS até ``max_chain_depth``);
+    #   - TransformRegistry.list_for_type/list_all (frontend mostra
+    #     chips "próximos passos" no Transform Hub);
+    #   - TransformRegistry.detect_cycles (boot-time check).
+    # Default: [] (não participa de chain).
+    downstream_transforms: List[str] = []
 
     def run(self, entity: Entity) -> TransformResult:
         """
@@ -182,15 +191,25 @@ class TransformRegistry:
 
     @classmethod
     def list_for_type(cls, entity_type: str) -> List[Dict]:
-        """Lista transforms compatíveis com um tipo de entidade."""
+        """Lista transforms compatíveis com um tipo de entidade.
+
+        Issue #81: inclui ``downstream_transforms`` no dict retornado
+        para que o Transform Hub (frontend) renderize chips de
+        "próximos passos" — chamadas one-click ao chain.
+        """
         return [
             {
                 "name": t.name,
                 "display_name": t.display_name,
-                "input_types": t.input_types,
                 "description": t.description,
+                "input_types": list(t.input_types),
+                "output_types": list(getattr(t, "output_types", [])),
                 "service_name": getattr(t, "service_name", None),
                 "service_display": getattr(t, "service_display", None),
+                "cache_ttl_seconds": t.cache_ttl_seconds,
+                "downstream_transforms": list(
+                    getattr(t, "downstream_transforms", [])
+                ),
             }
             for t in cls._transforms.values()
             if entity_type in t.input_types
@@ -198,18 +217,73 @@ class TransformRegistry:
 
     @classmethod
     def list_all(cls) -> List[Dict]:
-        """Lista todos os transforms registrados."""
+        """Lista todos os transforms registrados.
+
+        Issue #81: inclui ``downstream_transforms`` (mesma razão de
+        list_for_type).
+        """
         return [
             {
                 "name": t.name,
                 "display_name": t.display_name,
-                "input_types": t.input_types,
                 "description": t.description,
+                "input_types": list(t.input_types),
+                "output_types": list(getattr(t, "output_types", [])),
                 "service_name": getattr(t, "service_name", None),
                 "service_display": getattr(t, "service_display", None),
+                "cache_ttl_seconds": t.cache_ttl_seconds,
+                "downstream_transforms": list(
+                    getattr(t, "downstream_transforms", [])
+                ),
             }
             for t in cls._transforms.values()
         ]
+
+    @classmethod
+    def detect_cycles(cls) -> List[List[str]]:
+        """Detecta ciclos na DAG de ``downstream_transforms``.
+
+        Issue #81: cycle detection em 3 camadas — boot-time (este
+        helper), runtime (``Set visited``) e ``max_chain_depth`` cap.
+        Aqui usamos DFS com 3 cores (WHITE/GRAY/BLACK) — clássico
+        para detecção de ciclos em grafo direcionado.
+
+        Returns:
+            Lista de ciclos. Cada ciclo é uma lista de nomes de
+            transforms que se referenciam formando um loop, com o
+            nó de início repetido no final (ex:
+            ``['whois_lookup', 'person_domain_discovery',
+            'whois_lookup']``).
+        """
+        WHITE, GRAY, BLACK = 0, 1, 2
+        color = {name: WHITE for name in cls._transforms}
+        cycles: List[List[str]] = []
+
+        def dfs(node: str, path: List[str]) -> None:
+            if color[node] == GRAY:
+                # Encontramos um back-edge → ciclo.
+                try:
+                    cycle_start = path.index(node)
+                except ValueError:  # pragma: no cover - defensivo
+                    return
+                cycles.append(list(path[cycle_start:]) + [node])
+                return
+            if color[node] == BLACK:
+                return
+            color[node] = GRAY
+            path.append(node)
+            t = cls._transforms.get(node)
+            if t is not None:
+                for downstream in getattr(t, "downstream_transforms", []):
+                    if downstream in color:
+                        dfs(downstream, path)
+            path.pop()
+            color[node] = BLACK
+
+        for name in list(cls._transforms.keys()):
+            if color[name] == WHITE:
+                dfs(name, [])
+        return cycles
 
     @classmethod
     def list_services(cls) -> List[Dict]:

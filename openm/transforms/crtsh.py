@@ -33,6 +33,10 @@ class CrtShTransform(Transform):
         "e descobrir hosts esquecidos ou não documentados."
     )
     cache_ttl_seconds = 86400  # 24h — CT logs são append-only
+    # Issue #81: chain. Cada subdomínio descoberto pode ter seus IPs
+    # resolvidos (resolve_ip) e/ou DNS records consultados
+    # (dns_records_lookup).
+    downstream_transforms = ["resolve_ip", "dns_records_lookup"]
 
     def _run(self, entity: Entity) -> TransformResult:
         entries = query_crtsh(entity.value)

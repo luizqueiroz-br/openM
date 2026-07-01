@@ -706,11 +706,28 @@ const App = {
         }
     },
 
-    async runTransform(node, transformName) {
+    async runTransform(node, transformName, options = {}) {
         // Issue #124: loading sticky (duration 0) enquanto o transform roda.
         // Notyf garante MUTEX: se um novo toast não-loading chega, o loading
         // é fechado automaticamente (ver App.toast).
-        this.toast('loading', `Executando transform…`);
+        //
+        // Issue #81: chain. ``options.chain`` aceita true/false/'dry_run'.
+        // Para chain, mostramos "hop 1/N" e, conforme o chain avança
+        // (resposta já tem todos os hops executados server-side),
+        // re-emitimos um toast de loading com hop atual atualizado.
+        // Limitação Notyf 3.10: sem update API → dismiss + re-open.
+        const isChain = options.chain === true || options.chain === 'dry_run';
+        const chainMaxDepth = options.chainMaxDepth || 3;
+        const dryRun = options.chain === 'dry_run';
+
+        this.toast(
+            'loading',
+            dryRun
+                ? `Planejando chain de ${transformName}…`
+                : isChain
+                    ? `Executando chain hop 1/${chainMaxDepth}: ${transformName}…`
+                    : `Executando transform…`,
+        );
         try {
             const result = await OpenMAPI.runTransform(
                 node.id,
@@ -718,7 +735,27 @@ const App = {
                 node.type,
                 node.label || node.value,
                 { ...node },
+                {
+                    chain: options.chain !== undefined ? options.chain : false,
+                    chainMaxDepth,
+                    force: options.force,
+                },
             );
+
+            // Issue #81: chain — exibir progresso hop-by-hop. Como
+            // o backend executa tudo server-side numa única request
+            // (limitação v1 — sem SSE/WS), re-emitimos toasts com
+            // base no array de hops retornado em result.chain.hops.
+            if (isChain && result.chain && Array.isArray(result.chain.hops)) {
+                const hops = result.chain.hops;
+                for (let i = 0; i < hops.length; i++) {
+                    const h = hops[i];
+                    this.toast(
+                        'loading',
+                        `Chain hop ${h.depth}/${chainMaxDepth}: ${h.transform} (${h.status}, ${h.output_ids.length} outputs)`,
+                    );
+                }
+            }
 
             const newNodes = (result.entities || []).map(e => {
                 const data = { id: e.id, label: e.value, type: e.type };
@@ -746,20 +783,51 @@ const App = {
                 return { data };
             });
 
+            // Issue #81: chain pode trazer entities/rels adicionais.
+            // Os result.entities já contém hop 1; em chain, o backend
+            // NÃO devolve entidades dos hops 2..N no mesmo payload
+            // (a UI pode re-fetch subgraph ou refresh). O log
+            // informativo cita total_hops.
             Graph.addElements({ nodes: newNodes, edges: newEdges });
+
+            if (dryRun) {
+                const plan = result.plan || [];
+                this.toast(
+                    'success',
+                    `Dry-run: ${plan.length} hop(s) planejados para ${transformName}.`,
+                );
+                return result;
+            }
+
+            if (isChain) {
+                const chainInfo = result.chain || {};
+                this.toast(
+                    'success',
+                    `Chain concluída: ${chainInfo.total_hops || 0} hop(s) executados` +
+                    (chainInfo.truncated ? ` (truncado: ${chainInfo.truncated_reason})` : '') +
+                    `, +${newNodes.length} entidades, +${newEdges.length} vínculos.`,
+                );
+                return result;
+            }
+
             this.toast('success', `Transform concluído: +${newNodes.length} entidades, +${newEdges.length} vínculos.`);
+            return result;
         } catch (err) {
             // Issue #89: 429 = rate limit exceeded. Mostra toast de
             // warning com retry_after do body (fallback 60s) em vez
             // de error genérico. O endpoint /api/services/quota pode
             // ser consultado depois para ver quota detalhada.
+            //
+            // Issue #81: chain = true consome 1 hit no rate limit
+            // (não N). Em 429, abortar chain.
             if (err.status === 429) {
                 const retry = (err.body && err.body.retry_after) || 60;
                 const limit = (err.body && err.body.limit) || '';
                 this.toast(
                     'warning',
                     'Limite de requisições atingido',
-                    `Tente em ${retry}s${limit ? ` (limite: ${limit})` : ''}`
+                    `Tente em ${retry}s${limit ? ` (limite: ${limit})` : ''}` +
+                    (isChain ? ' (chain abortada)' : ''),
                 );
                 return;
             }

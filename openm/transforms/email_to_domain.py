@@ -27,6 +27,9 @@ class EmailToDomainTransform(Transform):
         "vinculado por BELONGS_TO. Útil para pivotar de email para "
         "domínio e enriquecer a partir dele."
     )
+    # Issue #81: chain. Domínio extraído pode ir para whois_lookup,
+    # resolve_ip (A records) ou crtsh_lookup (subdomínios via CT).
+    downstream_transforms = ["whois_lookup", "resolve_ip", "crtsh_lookup"]
 
     def _run(self, entity: Entity) -> TransformResult:
         domain_value = _extract_domain(entity.value)
