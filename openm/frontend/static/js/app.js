@@ -737,7 +737,7 @@ const App = {
                     target: r.to_id,
                     label: r.type,
                 };
-                // Adiciona properties extras sem sobrescrever chaves reservadas
+                // Adicionar properties extras sem sobrescrever chaves reservadas
                 for (const [k, v] of Object.entries(r.properties || {})) {
                     if (!['id', 'source', 'target', 'label'].includes(k)) {
                         data[k] = v;
@@ -749,6 +749,20 @@ const App = {
             Graph.addElements({ nodes: newNodes, edges: newEdges });
             this.toast('success', `Transform concluído: +${newNodes.length} entidades, +${newEdges.length} vínculos.`);
         } catch (err) {
+            // Issue #89: 429 = rate limit exceeded. Mostra toast de
+            // warning com retry_after do body (fallback 60s) em vez
+            // de error genérico. O endpoint /api/services/quota pode
+            // ser consultado depois para ver quota detalhada.
+            if (err.status === 429) {
+                const retry = (err.body && err.body.retry_after) || 60;
+                const limit = (err.body && err.body.limit) || '';
+                this.toast(
+                    'warning',
+                    'Limite de requisições atingido',
+                    `Tente em ${retry}s${limit ? ` (limite: ${limit})` : ''}`
+                );
+                return;
+            }
             this.toast('error', err.message);
         }
     },
@@ -1535,6 +1549,90 @@ const App = {
 };
 
 window.App = App;
+
+/**
+ * RateLimitClient (issue #89) — helper que rastreia o estado de
+ * quota do user a partir dos headers ``X-RateLimit-*`` emitidos pelo
+ * backend em TODAS as responses (porque
+ * ``Flask-Limiter(headers_enabled=True)``).
+ *
+ * Uso típico:
+ *   - Chamar ``updateFromResponse(response)`` após qualquer fetch
+ *     bem-sucedido para atualizar o estado.
+ *   - Chamar ``handle429(err, currentService)`` no catch de uma
+ *     request que retornou 429 (mostra toast warning).
+ *
+ * O estado é in-memory; não persiste entre reloads. Se a UI precisar
+ * do estado inicial, chama ``/api/services/quota`` em bootstrap.
+ */
+const RateLimitClient = {
+    /**
+     * Estado atual por service: {shodan: {limit, remaining, reset, period}, ...}
+     */
+    _state: {},
+
+    /**
+     * Lê ``X-RateLimit-Limit``, ``X-RateLimit-Remaining`` e
+     * ``X-RateLimit-Reset`` de uma Response. Silenciosamente ignora
+     * responses sem esses headers (ex: requests de auth).
+     *
+     * @param {Response} response
+     * @param {string} [serviceHint] - nome do service se conhecido
+     *   (ex: 'shodan'). Se ausente, tenta extrair do header
+     *   customizado ``X-RateLimit-Service`` que o backend pode setar
+     *   (não implementado ainda — placeholder).
+     */
+    updateFromResponse(response, serviceHint = null) {
+        const limit = response.headers.get('X-RateLimit-Limit');
+        const remaining = response.headers.get('X-RateLimit-Remaining');
+        const reset = response.headers.get('X-RateLimit-Reset');
+        if (limit === null || remaining === null) {
+            return null;
+        }
+        const key = serviceHint || '__global__';
+        this._state[key] = {
+            limit: parseInt(limit, 10) || 0,
+            remaining: parseInt(remaining, 10) || 0,
+            reset: parseInt(reset, 10) || 0,
+        };
+        return this._state[key];
+    },
+
+    /**
+     * Trata 429: mostra toast warning com ``retry_after`` e log do
+     * estado atual.
+     *
+     * @param {Error} err - error com ``err.status===429`` e
+     *   ``err.body`` contendo ``{retry_after, limit, ...}`` (do backend).
+     * @param {string} [currentService] - nome do service que disparou
+     *   o 429 (para lookup no state).
+     */
+    handle429(err, currentService = null) {
+        const body = (err && err.body) || {};
+        const retry = body.retry_after || 60;
+        const limit = body.limit || '';
+        if (window.App && window.App.toast) {
+            window.App.toast(
+                'warning',
+                'Limite atingido',
+                `Tente em ${retry}s${limit ? ` (limite: ${limit})` : ''}`
+            );
+        }
+        // Marca o service como exhausted no state local
+        if (currentService && this._state[currentService]) {
+            this._state[currentService].remaining = 0;
+        }
+    },
+
+    /**
+     * @returns {object} estado atual (read-only shallow copy)
+     */
+    getState() {
+        return { ...this._state };
+    },
+};
+
+window.RateLimitClient = RateLimitClient;
 
 function bootApp() {
     if (window.App && window.App.init) {

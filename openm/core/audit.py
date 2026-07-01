@@ -240,6 +240,9 @@ ACTION_APIKEY_CREATE = "apikey.create"
 ACTION_APIKEY_UPDATE = "apikey.update"
 ACTION_APIKEY_DELETE = "apikey.delete"
 
+# Rate limiting (issue #89)
+ACTION_RATE_LIMIT_EXCEEDED = "ratelimit.exceeded"
+
 # Graph edges
 ACTION_EDGE_CREATE = "edge.create"
 ACTION_EDGE_DELETE = "edge.delete"
@@ -265,6 +268,7 @@ __all__ = [
     "ACTION_APIKEY_CREATE",
     "ACTION_APIKEY_UPDATE",
     "ACTION_APIKEY_DELETE",
+    "ACTION_RATE_LIMIT_EXCEEDED",
     "ACTION_EDGE_CREATE",
     "ACTION_EDGE_DELETE",
 ]
